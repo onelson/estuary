@@ -1,3 +1,5 @@
+# Estuary [![codecov](https://codecov.io/gh/onelson/estuary/branch/main/graph/badge.svg?token=2NJBNOIRL3)](https://codecov.io/gh/onelson/estuary)
+
 *An estuary* is a coastal semi-enclosed body of water where fresh and salt
 waters meet.
 
