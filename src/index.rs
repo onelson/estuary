@@ -7,12 +7,12 @@
 //! also a thing in here since all changes to the registry index must be
 //! committed a the git repo which is also managed by this module..
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use git2::{Oid, Repository, Signature};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::io::Write;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 /// The config.json for the registry.
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
@@ -112,6 +112,43 @@ enum DependencyKind {
 /// - Rejects reserved names, such as Windows special filenames like "nul".
 fn validate_package_name() -> Result<()> {
     todo!()
+}
+
+/// Generate the directory name for a package file in the index.
+///
+/// The index repository contains one file for each package, where the filename
+/// is the name of the package in lowercase. Each version of the package has a
+/// separate line in the file. The files are organized in a tier of directories:
+///
+/// - Packages with 1 character names are placed in a directory named `1`.
+/// - Packages with 2 character names are placed in a directory named `2`.
+/// - Packages with 3 character names are placed in the directory
+///   `3/{first-character}` where `{first-character}` is the first character of
+///   the package name.
+/// - All other packages are stored in directories named
+///   `{first-two}/{second-two}` where the top directory is the first two
+///   characters of the package name, and the next subdirectory is the third and
+///   fourth characters of the package name. For example, `cargo` would be
+///   stored in a file named `ca/rg/cargo`.
+fn get_package_file_dir(name: &str) -> Result<PathBuf> {
+    let name = name.trim().to_lowercase();
+    match name.len() {
+        0 => Err(anyhow!("Empty string is not a valid package name.")),
+        1 => Ok(PathBuf::from("1/")),
+        2 => Ok(PathBuf::from("2/")),
+        3 => {
+            let mut pb = PathBuf::from("3/");
+            pb.push(name.chars().nth(0).unwrap().to_string());
+            Ok(pb)
+        }
+        _ => {
+            let mut pb = PathBuf::new();
+            let chars = name.chars().take(4).map(String::from).collect::<Vec<_>>();
+            pb.push(chars[0..2].join(""));
+            pb.push(chars[2..4].join(""));
+            Ok(pb)
+        }
+    }
 }
 
 /// Get a git signature for "the system".
@@ -376,6 +413,62 @@ mod tests {
                 .filter(|msg| msg.contains("update registry config"))
                 .count(),
             1
+        );
+    }
+
+    #[test]
+    fn test_get_empty_package_dir_is_err() {
+        assert!(get_package_file_dir("").is_err());
+        assert!(get_package_file_dir("  ").is_err());
+        assert!(get_package_file_dir("    ").is_err());
+    }
+
+    #[test]
+    fn test_get_1_char_package_dir() {
+        assert_eq!(PathBuf::from("1/"), get_package_file_dir("a").unwrap());
+        assert_eq!(PathBuf::from("1/"), get_package_file_dir("b").unwrap());
+        assert_eq!(PathBuf::from("1/"), get_package_file_dir("c").unwrap());
+    }
+
+    #[test]
+    fn test_get_2_char_package_dir() {
+        assert_eq!(PathBuf::from("2/"), get_package_file_dir("aa").unwrap());
+        assert_eq!(PathBuf::from("2/"), get_package_file_dir("ba").unwrap());
+        assert_eq!(PathBuf::from("2/"), get_package_file_dir("ca").unwrap());
+    }
+
+    #[test]
+    fn test_get_3_char_package_dir() {
+        assert_eq!(PathBuf::from("3/a"), get_package_file_dir("aaa").unwrap());
+        assert_eq!(PathBuf::from("3/b"), get_package_file_dir("baa").unwrap());
+        assert_eq!(PathBuf::from("3/c"), get_package_file_dir("caa").unwrap());
+    }
+
+    #[test]
+    fn test_get_4_or_more_char_package_dir() {
+        assert_eq!(
+            PathBuf::from("aa/aa"),
+            get_package_file_dir("aaaa").unwrap()
+        );
+        assert_eq!(
+            PathBuf::from("ba/ab"),
+            get_package_file_dir("baab").unwrap()
+        );
+        assert_eq!(
+            PathBuf::from("ab/cd"),
+            get_package_file_dir("abcd").unwrap()
+        );
+        assert_eq!(
+            PathBuf::from("de/ad"),
+            get_package_file_dir("deadbeef").unwrap()
+        );
+    }
+
+    #[test]
+    fn test_get_upper_cased_package_dir() {
+        assert_eq!(
+            PathBuf::from("aa/aa"),
+            get_package_file_dir("aAAa").unwrap()
         );
     }
 }
