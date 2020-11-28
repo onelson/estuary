@@ -15,16 +15,16 @@ use std::fs::OpenOptions;
 use std::io::{BufReader, Read, Write};
 use std::path::{Path, PathBuf};
 
-/// The config.json for the registry.
+/// The config data for the registry.
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
-struct Config {
+pub struct Config {
     dl: String,
     api: String,
 }
 
 /// These records appear, one per line per version, in each crate file.
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
-struct PackageVersion {
+pub struct PackageVersion {
     /// The name of the package.
     ///
     /// This must only contain alphanumeric, `-`, or `_` characters.
@@ -50,7 +50,7 @@ struct PackageVersion {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
-struct Dependency {
+pub struct Dependency {
     /// Name of the dependency.
     ///
     /// If the dependency is renamed from the original package name,
@@ -113,6 +113,230 @@ enum DependencyKind {
 /// - Rejects reserved names, such as Windows special filenames like "nul".
 fn validate_package_name() -> Result<()> {
     todo!()
+}
+
+pub struct PackageIndex {
+    repo: Repository,
+}
+
+impl PackageIndex {
+    /// Initialize a fresh (registry) index.
+    ///
+    /// Given an empty directory, this will create a new git repo containing a
+    /// `config.json`.
+    ///
+    /// If the directory is non-empty *and has a git repo in it*, the assumption
+    /// is there's already a valid index at that path.
+    /// An attempt to update the config (if necessary) using the supplied values
+    /// will be made.
+    pub fn init<P>(path: P, config: &Config) -> Result<Self>
+    where
+        P: AsRef<Path>,
+    {
+        let path = path.as_ref();
+        let pkg_index = Self {
+            repo: get_or_create_repo(path)?,
+        };
+        let current_config: Option<Config> = pkg_index.read_config().ok();
+
+        if Some(config) != current_config.as_ref() {
+            // XXX: might need to think about reverting if something fails part way
+            // through the operation.
+            pkg_index.write_config(config)?;
+            pkg_index.add_and_commit_file("config.json", "update registry config")?;
+        }
+        Ok(pkg_index)
+    }
+
+    /// Add a file, then commit it to the git repo.
+    ///
+    /// Roughly equivalent to:
+    ///
+    /// ```text
+    /// git add <path> && git commit -m <msg>
+    /// ```
+    fn add_and_commit_file<P>(&self, path: P, msg: &str) -> Result<()>
+    where
+        P: AsRef<Path>,
+    {
+        let head = self.repo.head()?;
+        let parent = head.peel_to_commit()?;
+        let mut index = self.repo.index()?;
+        index.add_path(path.as_ref())?;
+        index.write()?;
+        let tree_id = index.write_tree()?;
+        let tree = self.repo.find_tree(tree_id)?;
+        let sig = get_sig()?;
+        self.repo
+            .commit(Some("HEAD"), &sig, &sig, msg, &tree, &[&parent])?;
+        Ok(())
+    }
+
+    /// Read and parse the config file from the registry root directory.
+    fn read_config(&self) -> Result<Config> {
+        let fh = std::fs::File::open(self.repo.workdir().unwrap().join("config.json"))?;
+        Ok(serde_json::from_reader(fh)?)
+    }
+
+    /// Write the config to the registry root directory.
+    fn write_config(&self, config: &Config) -> Result<()> {
+        log::debug!("Writing registry config file.");
+        let mut fh = OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(true)
+            .open(self.repo.workdir().unwrap().join("config.json"))?;
+        fh.write_all(&serde_json::to_vec(config)?)?;
+        fh.flush()?;
+        fh.sync_all()?;
+        Ok(())
+    }
+
+    /// Update (or create) a package file in the index.
+    ///
+    /// When publishing a new package, a package file is created in the index.
+    ///
+    /// With the package file created, versions are added as json objects, one per
+    /// line (per version).
+    ///
+    /// If the version already exists in the package file, this function will
+    /// return an `Err`.
+    pub fn publish(&self, pkg: &PackageVersion) -> Result<()> {
+        let root = self.repo.workdir().unwrap();
+        let dir = get_package_file_dir(&pkg.name)?;
+        std::fs::create_dir_all(root.join(&dir))?;
+        let pkg_file = dir.join(&pkg.name);
+
+        // "touch" the file to make sure it's available for reading.
+        OpenOptions::new()
+            .create(true)
+            .write(true)
+            .open(root.join(&pkg_file))?;
+
+        // Read the file to see if the version we're publishing is already present.
+        // Bail if it is.
+        {
+            let contents = self.read_package_file(&pkg.name)?;
+            for line in contents.lines() {
+                let PackageVersion { vers, .. } = serde_json::from_str(line)?;
+                if vers == pkg.vers {
+                    return Err(anyhow!(
+                        "Failed to publish `{} v{}`. Already exists in index.",
+                        pkg.name,
+                        pkg.vers
+                    ));
+                }
+            }
+        }
+
+        // Write the version to the file.
+        {
+            let mut fh = OpenOptions::new()
+                .create(false)
+                .append(true)
+                .open(root.join(&pkg_file))?;
+            writeln!(fh, "{}", serde_json::to_string(pkg)?)?;
+            fh.flush()?;
+            fh.sync_all()?
+        }
+
+        self.add_and_commit_file(
+            pkg_file,
+            &format!("publish crate: `{} v{}`", pkg.name, pkg.vers),
+        )?;
+        Ok(())
+    }
+
+    /// Get the contents of a package file.
+    fn read_package_file(&self, name: &str) -> Result<String> {
+        let root = self.repo.workdir().unwrap();
+        let dir = get_package_file_dir(name)?;
+        std::fs::create_dir_all(root.join(&dir))?;
+        let pkg_file = dir.join(name);
+        let mut fh = BufReader::new(
+            OpenOptions::new()
+                .create(false)
+                .read(true)
+                .open(root.join(&pkg_file))?,
+        );
+
+        let mut buf = String::new();
+        fh.read_to_string(&mut buf)?;
+        Ok(buf)
+    }
+
+    /// Truncate and rewrite a package file.
+    fn rewrite_package_file(&self, name: &str, pkg_versions: &[PackageVersion]) -> Result<()> {
+        let root = self.repo.workdir().unwrap();
+        let dir = get_package_file_dir(name)?;
+        std::fs::create_dir_all(root.join(&dir))?;
+        let pkg_file = dir.join(name);
+
+        let mut fh = OpenOptions::new()
+            .create(false)
+            .write(true)
+            .truncate(true)
+            .open(root.join(&pkg_file))?;
+
+        for x in pkg_versions {
+            writeln!(fh, "{}", serde_json::to_string(x)?)?;
+        }
+
+        fh.flush()?;
+        fh.sync_all()?;
+        Ok(())
+    }
+
+    /// Updates the `yanked` field of a given package version.
+    pub fn set_yanked(&self, name: &str, version: &str, yanked: bool) -> Result<()> {
+        // This is the most naive impl I can think of for this, but it should get
+        // things rolling.
+        // Read the whole package file, json parse all lines, modify the struct that
+        // matches our target, then write all the lines back to the file (truncating
+        // the file).
+        // A better version of this would modify the specific line in the file, I
+        // guess.
+
+        let mut pkg_versions = self
+            .read_package_file(name)?
+            .lines()
+            .map(serde_json::from_str)
+            .map(|r| r.map_err(Into::into))
+            .collect::<Result<Vec<PackageVersion>>>()?;
+
+        for pkg in &mut pkg_versions {
+            if pkg.vers == version {
+                if pkg.yanked == yanked {
+                    // Nothing to do if the values are the same.
+                    return Ok(());
+                }
+                pkg.yanked = yanked;
+                break;
+            }
+        }
+
+        self.rewrite_package_file(name, &pkg_versions)?;
+
+        let dir = get_package_file_dir(name)?;
+
+        let verb = if yanked { "yank" } else { "unyank" };
+
+        self.add_and_commit_file(
+            dir.join(name),
+            &format!("{} crate: `{} v{}`", verb, name, version),
+        )?;
+
+        Ok(())
+    }
+
+    fn get_repo_log(&self) -> Result<Vec<(Oid, Option<String>)>> {
+        Ok(self
+            .repo
+            .reflog("HEAD")?
+            .iter()
+            .map(|entry| (entry.id_new(), entry.message().map(String::from)))
+            .collect())
+    }
 }
 
 /// Generate the directory name for a package file in the index.
@@ -182,245 +406,6 @@ where
     }
 }
 
-/// Add a file, then commit it to the git repo.
-///
-/// Roughly equivalent to:
-///
-/// ```text
-/// git add <path> && git commit -m <msg>
-/// ```
-fn add_and_commit_file<P>(repo: &Repository, path: P, msg: &str) -> Result<()>
-where
-    P: AsRef<Path>,
-{
-    let head = repo.head()?;
-    let parent = head.peel_to_commit()?;
-    let mut index = repo.index()?;
-    index.add_path(path.as_ref())?;
-    index.write()?;
-    let tree_id = index.write_tree()?;
-    let tree = repo.find_tree(tree_id)?;
-    let sig = get_sig()?;
-    repo.commit(Some("HEAD"), &sig, &sig, msg, &tree, &[&parent])?;
-    Ok(())
-}
-
-/// Initialize a fresh (registry) index.
-///
-/// Given an empty directory, this will create a new git repo containing a
-/// `config.json`.
-///
-/// If the directory is non-empty *and has a git repo in it*, the assumption is
-/// there's already a valid index at that path.
-/// An attempt to update the config (if necessary) using the supplied values
-/// will be made.
-fn init<P>(root: P, config: &Config) -> Result<()>
-where
-    P: AsRef<Path>,
-{
-    let root = root.as_ref();
-    let repo = get_or_create_repo(root)?;
-    let current_config: Option<Config> = read_config_from_disk(root).ok();
-
-    if Some(config) != current_config.as_ref() {
-        // XXX: might need to think about reverting if something fails part way
-        // through the operation.
-        write_config_to_disk(root, config)?;
-        add_and_commit_file(&repo, "config.json", "update registry config")?;
-    }
-
-    Ok(())
-}
-
-/// Read and parse the config file from the registry root directory.
-fn read_config_from_disk<P>(root: P) -> Result<Config>
-where
-    P: AsRef<Path>,
-{
-    let fh = std::fs::File::open(root.as_ref().join("config.json"))?;
-    Ok(serde_json::from_reader(fh)?)
-}
-
-/// Write the config to the registry root directory.
-fn write_config_to_disk<P>(root: P, config: &Config) -> Result<()>
-where
-    P: AsRef<Path>,
-{
-    log::debug!("Writing registry config file.");
-    let mut fh = OpenOptions::new()
-        .create(true)
-        .write(true)
-        .truncate(true)
-        .append(false)
-        .open(root.as_ref().join("config.json"))?;
-    fh.write_all(&serde_json::to_vec(config)?)?;
-    fh.flush()?;
-    fh.sync_all()?;
-    Ok(())
-}
-
-fn get_repo_log<P>(root: P) -> Result<Vec<(Oid, Option<String>)>>
-where
-    P: AsRef<Path>,
-{
-    let repo = get_or_create_repo(root.as_ref())?;
-    Ok(repo
-        .reflog("HEAD")?
-        .iter()
-        .map(|entry| (entry.id_new(), entry.message().map(String::from)))
-        .collect())
-}
-
-/// Update (or create) a package file in the index.
-///
-/// When publishing a new package, a package file is created in the index.
-///
-/// With the package file created, versions are added as json objects, one per
-/// line (per version).
-///
-/// If the version already exists in the package file, this function will
-/// return an `Err`.
-fn publish<P>(root: P, repo: &Repository, pkg: &PackageVersion) -> Result<()>
-where
-    P: AsRef<Path>,
-{
-    let root = root.as_ref();
-    let dir = get_package_file_dir(&pkg.name)?;
-    std::fs::create_dir_all(root.join(&dir))?;
-    let pkg_file = dir.join(&pkg.name);
-
-    // "touch" the file to make sure it's available for reading.
-    OpenOptions::new()
-        .create(true)
-        .write(true)
-        .open(root.join(&pkg_file))?;
-
-    // Read the file to see if the version we're publishing is already present.
-    // Bail if it is.
-    {
-        let contents = read_package_file(root, &pkg.name)?;
-        for line in contents.lines() {
-            let PackageVersion { vers, .. } = serde_json::from_str(line)?;
-            if vers == pkg.vers {
-                return Err(anyhow!(
-                    "Failed to publish `{} v{}`. Already exists in index.",
-                    pkg.name,
-                    pkg.vers
-                ));
-            }
-        }
-    }
-
-    // Write the version to the file.
-    {
-        let mut fh = OpenOptions::new()
-            .create(false)
-            .append(true)
-            .open(root.join(&pkg_file))?;
-        writeln!(fh, "{}", serde_json::to_string(pkg)?)?;
-        fh.flush()?;
-        fh.sync_all()?
-    }
-
-    add_and_commit_file(
-        repo,
-        pkg_file,
-        &format!("publish crate: `{} v{}`", pkg.name, pkg.vers),
-    )?;
-    Ok(())
-}
-
-/// Get the contents of a package file.
-fn read_package_file<P>(root: P, name: &str) -> Result<String>
-where
-    P: AsRef<Path>,
-{
-    let root = root.as_ref();
-    let dir = get_package_file_dir(name)?;
-    std::fs::create_dir_all(root.join(&dir))?;
-    let pkg_file = dir.join(name);
-    let mut fh = BufReader::new(
-        OpenOptions::new()
-            .create(false)
-            .read(true)
-            .open(root.join(&pkg_file))?,
-    );
-
-    let mut buf = String::new();
-    fh.read_to_string(&mut buf)?;
-    Ok(buf)
-}
-
-/// Truncate and rewrite a package file.
-fn rewrite_package_file<P>(root: P, name: &str, pkg_versions: &[PackageVersion]) -> Result<()>
-where
-    P: AsRef<Path>,
-{
-    let root = root.as_ref();
-    let dir = get_package_file_dir(name)?;
-    std::fs::create_dir_all(root.join(&dir))?;
-    let pkg_file = dir.join(name);
-
-    let mut fh = OpenOptions::new()
-        .create(false)
-        .write(true)
-        .truncate(true)
-        .open(root.join(&pkg_file))?;
-
-    for x in pkg_versions {
-        writeln!(fh, "{}", serde_json::to_string(x)?)?;
-    }
-
-    fh.flush()?;
-    fh.sync_all()?;
-    Ok(())
-}
-
-/// Updates the `yanked` field of a given package version.
-fn set_yanked<P>(root: P, repo: &Repository, name: &str, version: &str, yanked: bool) -> Result<()>
-where
-    P: AsRef<Path>,
-{
-    // This is the most naive impl I can think of for this, but it should get
-    // things rolling.
-    // Read the whole package file, json parse all lines, modify the struct that
-    // matches our target, then write all the lines back to the file (truncating
-    // the file).
-    // A better version of this would modify the specific line in the file, I
-    // guess.
-
-    let mut pkg_versions = read_package_file(&root, name)?
-        .lines()
-        .map(serde_json::from_str)
-        .map(|r| r.map_err(Into::into))
-        .collect::<Result<Vec<PackageVersion>>>()?;
-
-    for pkg in &mut pkg_versions {
-        if pkg.vers == version {
-            if pkg.yanked == yanked {
-                // Nothing to do if the values are the same.
-                return Ok(());
-            }
-            pkg.yanked = yanked;
-            break;
-        }
-    }
-
-    rewrite_package_file(&root, name, &pkg_versions)?;
-
-    let dir = get_package_file_dir(name)?;
-
-    let verb = if yanked { "yank" } else { "unyank" };
-
-    add_and_commit_file(
-        repo,
-        dir.join(name),
-        &format!("{} crate: `{} v{}`", verb, name, version),
-    )?;
-
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -484,7 +469,7 @@ mod tests {
     fn test_init_empty_dir() {
         let root = TempDir::new("test_empty").unwrap();
 
-        init(
+        let idx = PackageIndex::init(
             &root,
             &Config {
                 dl: String::from("http://localhost/dl"),
@@ -492,7 +477,7 @@ mod tests {
             },
         )
         .unwrap();
-        let entries = get_repo_log(&root).unwrap();
+        let entries = idx.get_repo_log().unwrap();
 
         // There should be one commit for the empty repo, and one for the config
         // update.
@@ -512,7 +497,7 @@ mod tests {
     fn test_config_change_updates_repo() {
         let root = TempDir::new("test_config_change_updates").unwrap();
 
-        init(
+        let _idx = PackageIndex::init(
             &root,
             &Config {
                 dl: String::from("http://localhost/dl"),
@@ -521,7 +506,7 @@ mod tests {
         )
         .unwrap();
 
-        init(
+        let idx2 = PackageIndex::init(
             &root,
             &Config {
                 dl: String::from("http://example.com/dl"),
@@ -530,7 +515,7 @@ mod tests {
         )
         .unwrap();
 
-        let entries = get_repo_log(&root).unwrap();
+        let entries = idx2.get_repo_log().unwrap();
 
         // There should be one commit for the empty repo, and two for the config
         // updates.
@@ -555,9 +540,9 @@ mod tests {
             api: String::from("http://localhost/api"),
         };
 
-        init(&root, &config).unwrap();
-        init(&root, &config).unwrap();
-        let entries = get_repo_log(&root).unwrap();
+        let _idx = PackageIndex::init(&root, &config).unwrap();
+        let idx2 = PackageIndex::init(&root, &config).unwrap();
+        let entries = idx2.get_repo_log().unwrap();
 
         // There should be one commit for the empty repo, and one (only one) for
         // the config update.
@@ -648,12 +633,11 @@ mod tests {
             api: String::from("http://localhost/api"),
         };
 
-        init(&root, &config).unwrap();
+        let idx = PackageIndex::init(&root, &config).unwrap();
 
-        let repo = get_or_create_repo(&root).unwrap();
-        publish(&root, &repo, &pkg).unwrap();
+        idx.publish(&pkg).unwrap();
 
-        let entries = get_repo_log(&root).unwrap();
+        let entries = idx.get_repo_log().unwrap();
 
         // There should be one commit for the empty repo, and one for the config
         // updates, and one for the publish.
@@ -687,13 +671,12 @@ mod tests {
             api: String::from("http://localhost/api"),
         };
 
-        init(&root, &config).unwrap();
+        let idx = PackageIndex::init(&root, &config).unwrap();
 
-        let repo = get_or_create_repo(&root).unwrap();
-        publish(&root, &repo, &pkg).unwrap();
-        assert!(publish(&root, &repo, &pkg).is_err());
+        idx.publish(&pkg).unwrap();
+        assert!(idx.publish(&pkg).is_err());
 
-        let entries = get_repo_log(&root).unwrap();
+        let entries = idx.get_repo_log().unwrap();
 
         // There should be one commit for the empty repo, and one for the config
         // updates, and one for the 1st publish, but nothing for the 2nd.
@@ -726,13 +709,12 @@ mod tests {
             api: String::from("http://localhost/api"),
         };
 
-        init(&root, &config).unwrap();
+        let idx = PackageIndex::init(&root, &config).unwrap();
 
-        let repo = get_or_create_repo(&root).unwrap();
-        publish(&root, &repo, &pkg).unwrap();
-        set_yanked(&root, &repo, &pkg.name, &pkg.vers, true).unwrap();
+        idx.publish(&pkg).unwrap();
+        idx.set_yanked(&pkg.name, &pkg.vers, true).unwrap();
 
-        let entries = get_repo_log(&root).unwrap();
+        let entries = idx.get_repo_log().unwrap();
 
         // There should be one commit for the empty repo, and one for the config
         // updates, and one for the publish, and one for the yank.
@@ -766,15 +748,14 @@ mod tests {
             api: String::from("http://localhost/api"),
         };
 
-        init(&root, &config).unwrap();
+        let idx = PackageIndex::init(&root, &config).unwrap();
 
-        let repo = get_or_create_repo(&root).unwrap();
-        publish(&root, &repo, &pkg).unwrap();
+        idx.publish(&pkg).unwrap();
 
-        set_yanked(&root, &repo, &pkg.name, &pkg.vers, true).unwrap();
-        set_yanked(&root, &repo, &pkg.name, &pkg.vers, false).unwrap();
+        idx.set_yanked(&pkg.name, &pkg.vers, true).unwrap();
+        idx.set_yanked(&pkg.name, &pkg.vers, false).unwrap();
 
-        let entries = get_repo_log(&root).unwrap();
+        let entries = idx.get_repo_log().unwrap();
 
         // There should be one commit for the empty repo, and one for the config
         // updates, and one for the publish, one for the yank, and finally one
@@ -817,15 +798,14 @@ mod tests {
             api: String::from("http://localhost/api"),
         };
 
-        init(&root, &config).unwrap();
+        let idx = PackageIndex::init(&root, &config).unwrap();
 
-        let repo = get_or_create_repo(&root).unwrap();
-        publish(&root, &repo, &pkg).unwrap();
+        idx.publish(&pkg).unwrap();
 
-        set_yanked(&root, &repo, &pkg.name, &pkg.vers, true).unwrap();
-        set_yanked(&root, &repo, &pkg.name, &pkg.vers, true).unwrap();
+        idx.set_yanked(&pkg.name, &pkg.vers, true).unwrap();
+        idx.set_yanked(&pkg.name, &pkg.vers, true).unwrap();
 
-        let entries = get_repo_log(&root).unwrap();
+        let entries = idx.get_repo_log().unwrap();
         assert_eq!(entries.len(), 4);
         assert_eq!(
             entries
@@ -856,15 +836,14 @@ mod tests {
             api: String::from("http://localhost/api"),
         };
 
-        init(&root, &config).unwrap();
+        let idx = PackageIndex::init(&root, &config).unwrap();
 
-        let repo = get_or_create_repo(&root).unwrap();
-        publish(&root, &repo, &pkg).unwrap();
+        idx.publish(&pkg).unwrap();
 
-        set_yanked(&root, &repo, &pkg.name, &pkg.vers, false).unwrap();
-        set_yanked(&root, &repo, &pkg.name, &pkg.vers, false).unwrap();
+        idx.set_yanked(&pkg.name, &pkg.vers, false).unwrap();
+        idx.set_yanked(&pkg.name, &pkg.vers, false).unwrap();
 
-        let entries = get_repo_log(&root).unwrap();
+        let entries = idx.get_repo_log().unwrap();
 
         assert_eq!(entries.len(), 3);
         assert_eq!(
