@@ -5,12 +5,28 @@
 //!
 //! This "registry index" should not be confused with the "git index" which is
 //! also a thing in here since all changes to the registry index must be
-//! committed a the git repo which is also managed by this module..
+//! committed a the git repo which is also managed by this module.
+//!
+//! The cargo docs recommend restrictions to apply to package names on ingest:
+//!
+//! - Only allows ASCII characters.
+//! - Only alphanumeric, -, and _ characters.
+//! - First character must be alphabetic.
+//! - Case-insensitive collision detection.
+//! - Prevent differences of - vs _.
+//! - Under a specific length (max 64).
+//! - Rejects reserved names, such as Windows special filenames like "nul".
+//!
+//! Currently none of these restrictions are being performed. This may come in
+//! the future.
 
-use anyhow::{anyhow, Result};
-use git2::{Oid, Repository, Signature};
+use anyhow::{anyhow, Context, Result};
+#[cfg(test)]
+use git2::Oid;
+use git2::{Repository, RepositoryInitOptions, Signature};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::env;
 use std::fs::OpenOptions;
 use std::io::{BufReader, Read, Write};
 use std::path::{Path, PathBuf};
@@ -18,8 +34,17 @@ use std::path::{Path, PathBuf};
 /// The config data for the registry.
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 pub struct Config {
-    dl: String,
-    api: String,
+    pub dl: String,
+    pub api: String,
+}
+
+impl Config {
+    pub fn from_env() -> Result<Self> {
+        let dl = env::var("ESTUARY_DL_URL").context("ESTUARY_DL_URL is required")?;
+        let api = env::var("ESTUARY_API_URL").context("ESTUARY_API_URL is required")?;
+
+        Ok(Self { dl, api })
+    }
 }
 
 /// These records appear, one per line per version, in each crate file.
@@ -28,25 +53,25 @@ pub struct PackageVersion {
     /// The name of the package.
     ///
     /// This must only contain alphanumeric, `-`, or `_` characters.
-    name: String,
+    pub name: String,
     /// The version of the package this row is describing.
     ///
     /// This must be a valid version number according to the Semantic
     /// Versioning 2.0.0 spec at https://semver.org/.
-    vers: String,
+    pub vers: String,
     /// Array of direct dependencies of the package.
-    deps: Vec<Dependency>,
+    pub deps: Vec<Dependency>,
     /// A SHA256 checksum of the `.crate` file.
-    cksum: String,
+    pub cksum: String,
     /// Set of features defined for the package.
     ///
     /// Each feature maps to an array of features or dependencies it enables.
-    features: HashMap<String, Vec<String>>,
+    pub features: HashMap<String, Vec<String>>,
     /// Boolean of whether or not this version has been yanked.
-    yanked: bool,
+    pub yanked: bool,
     /// The `links` string value from the package's manifest, or null if not
     /// specified. This field is optional and defaults to null.
-    links: Option<String>,
+    pub links: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
@@ -100,19 +125,6 @@ pub enum DependencyKind {
     Build,
     Dev,
     Normal,
-}
-
-/// The cargo docs recommend restrictions to apply to package names on ingest:
-///
-/// - Only allows ASCII characters.
-/// - Only alphanumeric, -, and _ characters.
-/// - First character must be alphabetic.
-/// - Case-insensitive collision detection.
-/// - Prevent differences of - vs _.
-/// - Under a specific length (max 64).
-/// - Rejects reserved names, such as Windows special filenames like "nul".
-fn validate_package_name() -> Result<()> {
-    todo!()
 }
 
 pub struct PackageIndex {
@@ -169,6 +181,7 @@ impl PackageIndex {
         let sig = get_sig()?;
         self.repo
             .commit(Some("HEAD"), &sig, &sig, msg, &tree, &[&parent])?;
+        git_update_server_info(&self.repo)?;
         Ok(())
     }
 
@@ -187,8 +200,6 @@ impl PackageIndex {
             .truncate(true)
             .open(self.repo.workdir().unwrap().join("config.json"))?;
         fh.write_all(&serde_json::to_vec(config)?)?;
-        fh.flush()?;
-        fh.sync_all()?;
         Ok(())
     }
 
@@ -236,8 +247,6 @@ impl PackageIndex {
                 .append(true)
                 .open(root.join(&pkg_file))?;
             writeln!(fh, "{}", serde_json::to_string(pkg)?)?;
-            fh.flush()?;
-            fh.sync_all()?
         }
 
         self.add_and_commit_file(
@@ -282,8 +291,6 @@ impl PackageIndex {
             writeln!(fh, "{}", serde_json::to_string(x)?)?;
         }
 
-        fh.flush()?;
-        fh.sync_all()?;
         Ok(())
     }
 
@@ -329,6 +336,8 @@ impl PackageIndex {
         Ok(())
     }
 
+    // XXX: we might want this irl for debug pages or whatever.
+    #[cfg(test)]
     fn get_repo_log(&self) -> Result<Vec<(Oid, Option<String>)>> {
         Ok(self
             .repo
@@ -387,10 +396,17 @@ where
 {
     let sig = get_sig()?;
     let root = root.as_ref();
-    let is_empty = std::fs::read_dir(root)?.next().is_none();
+
+    let is_empty = match std::fs::read_dir(root) {
+        Ok(mut entries) => entries.next().is_none(),
+        _ => true,
+    };
+
     if is_empty {
         log::debug!("Creating a fresh index.");
-        let repo = Repository::init(root)?;
+        let repo = Repository::init_opts(root, RepositoryInitOptions::new().mkdir(true))
+            .context("Failed to init git repo")?;
+
         {
             let tree_id = {
                 let mut index = repo.index()?;
@@ -398,12 +414,38 @@ where
             };
             let tree = repo.find_tree(tree_id)?;
             repo.commit(Some("HEAD"), &sig, &sig, "init empty repo", &tree, &[])?;
+            git_update_server_info(&repo)?;
         }
         Ok(repo)
     } else {
-        log::debug!("Using preexisting index.");
-        Ok(Repository::open(root)?)
+        log::debug!("Using pre-existing index.");
+        Ok(Repository::open(root).context("Failed to open git repo")?)
     }
+}
+
+/// The post-update hook is normally used to generate `info/refs` for
+/// each branch when you push to a git server. This is achieved by
+/// running `git update-server-info`.
+///
+/// This is important for git clients that hope to use the "dumb" protocol.
+/// See: https://git-scm.com/book/en/v2/Git-on-the-Server-The-Protocols
+///
+/// Our "git server" is closer to a plain working tree (like a clone) so
+/// we'd never push to this. In order to expose our git repo to `cargo` we can
+/// basically run this command after each commit.
+fn git_update_server_info(repo: &Repository) -> Result<()> {
+    // FIXME: see if we can do this without shelling out.
+    Ok(std::process::Command::new("git")
+        .current_dir(repo.workdir().unwrap())
+        .arg("update-server-info")
+        .output()
+        .map(|x| {
+            if x.status.success() {
+                log::trace!("git says: {:?}", x);
+            } else {
+                log::error!("git says: {:?}", x);
+            }
+        })?)
 }
 
 #[cfg(test)]
