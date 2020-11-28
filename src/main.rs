@@ -1,4 +1,4 @@
-mod index;
+mod package_index;
 
 fn main() {
     dotenv::dotenv().ok();
