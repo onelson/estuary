@@ -11,7 +11,8 @@ use anyhow::{anyhow, Result};
 use git2::{Oid, Repository, Signature};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::io::Write;
+use std::fs::OpenOptions;
+use std::io::{BufReader, Read, Write};
 use std::path::{Path, PathBuf};
 
 /// The config.json for the registry.
@@ -138,7 +139,7 @@ fn get_package_file_dir(name: &str) -> Result<PathBuf> {
         2 => Ok(PathBuf::from("2/")),
         3 => {
             let mut pb = PathBuf::from("3/");
-            pb.push(name.chars().nth(0).unwrap().to_string());
+            pb.push(name.chars().next().unwrap().to_string());
             Ok(pb)
         }
         _ => {
@@ -181,6 +182,29 @@ where
     }
 }
 
+/// Add a file, then commit it to the git repo.
+///
+/// Roughly equivalent to:
+///
+/// ```text
+/// git add <path> && git commit -m <msg>
+/// ```
+fn add_and_commit_file<P>(repo: &Repository, path: P, msg: &str) -> Result<()>
+where
+    P: AsRef<Path>,
+{
+    let head = repo.head()?;
+    let parent = head.peel_to_commit()?;
+    let mut index = repo.index()?;
+    index.add_path(path.as_ref())?;
+    index.write()?;
+    let tree_id = index.write_tree()?;
+    let tree = repo.find_tree(tree_id)?;
+    let sig = get_sig()?;
+    repo.commit(Some("HEAD"), &sig, &sig, msg, &tree, &[&parent])?;
+    Ok(())
+}
+
 /// Initialize a fresh (registry) index.
 ///
 /// Given an empty directory, this will create a new git repo containing a
@@ -199,27 +223,10 @@ where
     let current_config: Option<Config> = read_config_from_disk(root).ok();
 
     if Some(config) != current_config.as_ref() {
+        // XXX: might need to think about reverting if something fails part way
+        // through the operation.
         write_config_to_disk(root, config)?;
-
-        let head = repo.head()?;
-        let parent = head.peel_to_commit()?;
-
-        let mut index = repo.index()?;
-
-        index.add_path(Path::new("config.json"))?;
-        index.write()?;
-
-        let tree_id = index.write_tree()?;
-        let tree = repo.find_tree(tree_id)?;
-        let sig = get_sig()?;
-        repo.commit(
-            Some("HEAD"),
-            &sig,
-            &sig,
-            "update registry config",
-            &tree,
-            &[&parent],
-        )?;
+        add_and_commit_file(&repo, "config.json", "update registry config")?;
     }
 
     Ok(())
@@ -240,7 +247,7 @@ where
     P: AsRef<Path>,
 {
     log::debug!("Writing registry config file.");
-    let mut fh = std::fs::OpenOptions::new()
+    let mut fh = OpenOptions::new()
         .create(true)
         .write(true)
         .truncate(true)
@@ -262,6 +269,156 @@ where
         .iter()
         .map(|entry| (entry.id_new(), entry.message().map(String::from)))
         .collect())
+}
+
+/// Update (or create) a package file in the index.
+///
+/// When publishing a new package, a package file is created in the index.
+///
+/// With the package file created, versions are added as json objects, one per
+/// line (per version).
+///
+/// If the version already exists in the package file, this function will
+/// return an `Err`.
+fn publish<P>(root: P, repo: &Repository, pkg: &PackageVersion) -> Result<()>
+where
+    P: AsRef<Path>,
+{
+    let root = root.as_ref();
+    let dir = get_package_file_dir(&pkg.name)?;
+    std::fs::create_dir_all(root.join(&dir))?;
+    let pkg_file = dir.join(&pkg.name);
+
+    // "touch" the file to make sure it's available for reading.
+    OpenOptions::new()
+        .create(true)
+        .write(true)
+        .open(root.join(&pkg_file))?;
+
+    // Read the file to see if the version we're publishing is already present.
+    // Bail if it is.
+    {
+        let contents = read_package_file(root, &pkg.name)?;
+        for line in contents.lines() {
+            let PackageVersion { vers, .. } = serde_json::from_str(line)?;
+            if vers == pkg.vers {
+                return Err(anyhow!(
+                    "Failed to publish `{} v{}`. Already exists in index.",
+                    pkg.name,
+                    pkg.vers
+                ));
+            }
+        }
+    }
+
+    // Write the version to the file.
+    {
+        let mut fh = OpenOptions::new()
+            .create(false)
+            .append(true)
+            .open(root.join(&pkg_file))?;
+        writeln!(fh, "{}", serde_json::to_string(pkg)?)?;
+        fh.flush()?;
+        fh.sync_all()?
+    }
+
+    add_and_commit_file(
+        repo,
+        pkg_file,
+        &format!("publish crate: `{} v{}`", pkg.name, pkg.vers),
+    )?;
+    Ok(())
+}
+
+/// Get the contents of a package file.
+fn read_package_file<P>(root: P, name: &str) -> Result<String>
+where
+    P: AsRef<Path>,
+{
+    let root = root.as_ref();
+    let dir = get_package_file_dir(name)?;
+    std::fs::create_dir_all(root.join(&dir))?;
+    let pkg_file = dir.join(name);
+    let mut fh = BufReader::new(
+        OpenOptions::new()
+            .create(false)
+            .read(true)
+            .open(root.join(&pkg_file))?,
+    );
+
+    let mut buf = String::new();
+    fh.read_to_string(&mut buf)?;
+    Ok(buf)
+}
+
+/// Truncate and rewrite a package file.
+fn rewrite_package_file<P>(root: P, name: &str, pkg_versions: &[PackageVersion]) -> Result<()>
+where
+    P: AsRef<Path>,
+{
+    let root = root.as_ref();
+    let dir = get_package_file_dir(name)?;
+    std::fs::create_dir_all(root.join(&dir))?;
+    let pkg_file = dir.join(name);
+
+    let mut fh = OpenOptions::new()
+        .create(false)
+        .write(true)
+        .truncate(true)
+        .open(root.join(&pkg_file))?;
+
+    for x in pkg_versions {
+        writeln!(fh, "{}", serde_json::to_string(x)?)?;
+    }
+
+    fh.flush()?;
+    fh.sync_all()?;
+    Ok(())
+}
+
+/// Updates the `yanked` field of a given package version.
+fn set_yanked<P>(root: P, repo: &Repository, name: &str, version: &str, yanked: bool) -> Result<()>
+where
+    P: AsRef<Path>,
+{
+    // This is the most naive impl I can think of for this, but it should get
+    // things rolling.
+    // Read the whole package file, json parse all lines, modify the struct that
+    // matches our target, then write all the lines back to the file (truncating
+    // the file).
+    // A better version of this would modify the specific line in the file, I
+    // guess.
+
+    let mut pkg_versions = read_package_file(&root, name)?
+        .lines()
+        .map(serde_json::from_str)
+        .map(|r| r.map_err(Into::into))
+        .collect::<Result<Vec<PackageVersion>>>()?;
+
+    for pkg in &mut pkg_versions {
+        if pkg.vers == version {
+            if pkg.yanked == yanked {
+                // Nothing to do if the values are the same.
+                return Ok(());
+            }
+            pkg.yanked = yanked;
+            break;
+        }
+    }
+
+    rewrite_package_file(&root, name, &pkg_versions)?;
+
+    let dir = get_package_file_dir(name)?;
+
+    let verb = if yanked { "yank" } else { "unyank" };
+
+    add_and_commit_file(
+        repo,
+        dir.join(name),
+        &format!("{} crate: `{} v{}`", verb, name, version),
+    )?;
+
+    Ok(())
 }
 
 #[cfg(test)]
@@ -469,6 +626,255 @@ mod tests {
         assert_eq!(
             PathBuf::from("aa/aa"),
             get_package_file_dir("aAAa").unwrap()
+        );
+    }
+
+    #[test]
+    fn test_publish_create_happy() {
+        let pkg = PackageVersion {
+            name: "foo".to_string(),
+            vers: "0.1.0".to_string(),
+            deps: vec![],
+            cksum: "".to_string(),
+            features: Default::default(),
+            yanked: false,
+            links: None,
+        };
+
+        let root = TempDir::new("test_publish_create_happy").unwrap();
+
+        let config = Config {
+            dl: String::from("http://localhost/dl"),
+            api: String::from("http://localhost/api"),
+        };
+
+        init(&root, &config).unwrap();
+
+        let repo = get_or_create_repo(&root).unwrap();
+        publish(&root, &repo, &pkg).unwrap();
+
+        let entries = get_repo_log(&root).unwrap();
+
+        // There should be one commit for the empty repo, and one for the config
+        // updates, and one for the publish.
+        assert_eq!(entries.len(), 3);
+        assert_eq!(
+            entries
+                .into_iter()
+                .filter_map(|(_, msg)| msg)
+                .filter(|msg| msg.contains("publish crate: `foo v0.1.0`"))
+                .count(),
+            1
+        );
+    }
+
+    #[test]
+    fn test_publish_same_vers_twice_is_err() {
+        let pkg = PackageVersion {
+            name: "foo".to_string(),
+            vers: "0.1.0".to_string(),
+            deps: vec![],
+            cksum: "".to_string(),
+            features: Default::default(),
+            yanked: false,
+            links: None,
+        };
+
+        let root = TempDir::new("test_publish_same_vers_twice_is_err").unwrap();
+
+        let config = Config {
+            dl: String::from("http://localhost/dl"),
+            api: String::from("http://localhost/api"),
+        };
+
+        init(&root, &config).unwrap();
+
+        let repo = get_or_create_repo(&root).unwrap();
+        publish(&root, &repo, &pkg).unwrap();
+        assert!(publish(&root, &repo, &pkg).is_err());
+
+        let entries = get_repo_log(&root).unwrap();
+
+        // There should be one commit for the empty repo, and one for the config
+        // updates, and one for the 1st publish, but nothing for the 2nd.
+        assert_eq!(entries.len(), 3);
+        assert_eq!(
+            entries
+                .into_iter()
+                .filter_map(|(_, msg)| msg)
+                .filter(|msg| msg.contains("publish crate: `foo v0.1.0`"))
+                .count(),
+            1
+        );
+    }
+    #[test]
+    fn test_yank() {
+        let pkg = PackageVersion {
+            name: "foo".to_string(),
+            vers: "0.1.0".to_string(),
+            deps: vec![],
+            cksum: "".to_string(),
+            features: Default::default(),
+            yanked: false,
+            links: None,
+        };
+
+        let root = TempDir::new("test_yank").unwrap();
+
+        let config = Config {
+            dl: String::from("http://localhost/dl"),
+            api: String::from("http://localhost/api"),
+        };
+
+        init(&root, &config).unwrap();
+
+        let repo = get_or_create_repo(&root).unwrap();
+        publish(&root, &repo, &pkg).unwrap();
+        set_yanked(&root, &repo, &pkg.name, &pkg.vers, true).unwrap();
+
+        let entries = get_repo_log(&root).unwrap();
+
+        // There should be one commit for the empty repo, and one for the config
+        // updates, and one for the publish, and one for the yank.
+        assert_eq!(entries.len(), 4);
+        assert_eq!(
+            entries
+                .into_iter()
+                .filter_map(|(_, msg)| msg)
+                .filter(|msg| msg.contains("commit: yank crate: `foo v0.1.0`"))
+                .count(),
+            1
+        );
+    }
+
+    #[test]
+    fn test_unyank() {
+        let pkg = PackageVersion {
+            name: "foo".to_string(),
+            vers: "0.1.0".to_string(),
+            deps: vec![],
+            cksum: "".to_string(),
+            features: Default::default(),
+            yanked: false,
+            links: None,
+        };
+
+        let root = TempDir::new("test_unyank").unwrap();
+
+        let config = Config {
+            dl: String::from("http://localhost/dl"),
+            api: String::from("http://localhost/api"),
+        };
+
+        init(&root, &config).unwrap();
+
+        let repo = get_or_create_repo(&root).unwrap();
+        publish(&root, &repo, &pkg).unwrap();
+
+        set_yanked(&root, &repo, &pkg.name, &pkg.vers, true).unwrap();
+        set_yanked(&root, &repo, &pkg.name, &pkg.vers, false).unwrap();
+
+        let entries = get_repo_log(&root).unwrap();
+
+        // There should be one commit for the empty repo, and one for the config
+        // updates, and one for the publish, one for the yank, and finally one
+        // for the unyank.
+        assert_eq!(entries.len(), 5);
+        assert_eq!(
+            entries
+                .iter()
+                .filter_map(|(_, msg)| msg.as_ref())
+                .filter(|msg| msg.contains("commit: yank crate: `foo v0.1.0`"))
+                .count(),
+            1
+        );
+        assert_eq!(
+            entries
+                .iter()
+                .filter_map(|(_, msg)| msg.as_ref())
+                .filter(|msg| msg.contains("commit: unyank crate: `foo v0.1.0`"))
+                .count(),
+            1
+        );
+    }
+
+    #[test]
+    fn test_double_yank() {
+        let pkg = PackageVersion {
+            name: "foo".to_string(),
+            vers: "0.1.0".to_string(),
+            deps: vec![],
+            cksum: "".to_string(),
+            features: Default::default(),
+            yanked: false,
+            links: None,
+        };
+
+        let root = TempDir::new("test_double_yank").unwrap();
+
+        let config = Config {
+            dl: String::from("http://localhost/dl"),
+            api: String::from("http://localhost/api"),
+        };
+
+        init(&root, &config).unwrap();
+
+        let repo = get_or_create_repo(&root).unwrap();
+        publish(&root, &repo, &pkg).unwrap();
+
+        set_yanked(&root, &repo, &pkg.name, &pkg.vers, true).unwrap();
+        set_yanked(&root, &repo, &pkg.name, &pkg.vers, true).unwrap();
+
+        let entries = get_repo_log(&root).unwrap();
+        assert_eq!(entries.len(), 4);
+        assert_eq!(
+            entries
+                .iter()
+                .filter_map(|(_, msg)| msg.as_ref())
+                .filter(|msg| msg.contains("commit: yank crate: `foo v0.1.0`"))
+                .count(),
+            1
+        );
+    }
+
+    #[test]
+    fn test_double_unyank() {
+        let pkg = PackageVersion {
+            name: "foo".to_string(),
+            vers: "0.1.0".to_string(),
+            deps: vec![],
+            cksum: "".to_string(),
+            features: Default::default(),
+            yanked: false,
+            links: None,
+        };
+
+        let root = TempDir::new("test_double_yank").unwrap();
+
+        let config = Config {
+            dl: String::from("http://localhost/dl"),
+            api: String::from("http://localhost/api"),
+        };
+
+        init(&root, &config).unwrap();
+
+        let repo = get_or_create_repo(&root).unwrap();
+        publish(&root, &repo, &pkg).unwrap();
+
+        set_yanked(&root, &repo, &pkg.name, &pkg.vers, false).unwrap();
+        set_yanked(&root, &repo, &pkg.name, &pkg.vers, false).unwrap();
+
+        let entries = get_repo_log(&root).unwrap();
+
+        assert_eq!(entries.len(), 3);
+        assert_eq!(
+            entries
+                .iter()
+                .filter_map(|(_, msg)| msg.as_ref())
+                .filter(|msg| msg.contains("commit: unyank crate: `foo v0.1.0`"))
+                .count(),
+            // Since packages start as unyanked, two more unyanks shouldn't do anything.
+            0
         );
     }
 }
