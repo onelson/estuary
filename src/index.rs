@@ -96,7 +96,7 @@ pub struct Dependency {
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
-enum DependencyKind {
+pub enum DependencyKind {
     Build,
     Dev,
     Normal,
