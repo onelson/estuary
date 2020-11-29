@@ -1,3 +1,24 @@
+//! These endpoints relate to the core packaging features.
+//!
+//! Publish, yank, unyank, and download are the bare essentials needed for
+//! adding new crates to the registry and using the registry to install crates.
+//!
+//! For now, the endpoints related to "owners" are on the back burner.
+//! For the small-scale use case estuary targets, we may not need them at all.
+//!
+//! The search endpoint is still pending, but it's on the more near term list.
+//!
+//! - [x] Publish `PUT /api/v1/crates/new`.
+//! - [x] Download `GET /api/v1/crates/{crate_name}/{version}/download`.
+//! - [x] Yank `DELETE /api/v1/crates/{crate_name}/{version}/yank`.
+//! - [x] Unyank `PUT /api/v1/crates/{crate_name}/{version}/unyank`.
+//! - [ ] Owners List `GET /api/v1/crates/{crate_name}/owners`.
+//! - [ ] Owners Add `PUT /api/v1/crates/{crate_name}/owners`.
+//! - [ ] Owners Remove `DELETE /api/v1/crates/{crate_name}/owners`.
+//! - [ ] Search `GET /api/v1/crates` query params: `q` (search terms), `per_page`
+//!   (result limit - default 10, max 100).
+//! - [x] Login `/me` (no details given re: method; cargo uses this for `cargo login`).
+
 use crate::errors::ApiResult;
 use crate::package_index::{Dependency, PackageIndex, PackageVersion};
 use crate::Settings;
@@ -103,26 +124,6 @@ pub async fn unyank(
     let index = package_index.lock().unwrap();
     index.set_yanked(&path.crate_name, &path.version, false)?;
     Ok(HttpResponse::Ok().json(json!({ "ok": true })))
-}
-
-#[get("/{crate_name}/owners")]
-pub async fn owners_list(_req: HttpRequest) -> impl Responder {
-    "owners list" // FIXME
-}
-
-#[put("/{crate_name}/owners")]
-pub async fn owners_add(_req: HttpRequest) -> impl Responder {
-    "owners add" // FIXME
-}
-
-#[delete("/{crate_name}/owners")]
-pub async fn owners_remove(_req: HttpRequest) -> impl Responder {
-    "owners remove" // FIXME
-}
-
-#[get("")]
-pub async fn search(_req: HttpRequest) -> impl Responder {
-    "crate search" // FIXME
 }
 
 #[get("/me")]
