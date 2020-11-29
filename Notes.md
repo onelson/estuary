@@ -57,3 +57,34 @@ Questions:
 - What's the deal with that login endpoint? Need to trial and error, I guess.
 - Since owners/ACL is up to the registry (not cargo) do we even want to
   implement this at the start? We could NOOP it.
+
+
+### Git
+
+We need to be able to act as a "git server" for cargo to interact with us.
+This means we need to implement at least the read operations for the
+"smart server" protocol detailed in this doc:
+
+- <https://git-scm.com/docs/http-protocol>
+- <https://mincong.io/2018/05/04/git-and-http/>
+
+
+```
+001e# service=git-upload-pack\n
+0000
+00fafac36d407e123c2499149fcc8c1fc8ebe5ecd301 HEADmulti_ack thin-pack side-band side-band-64k ofs-delta shallow deepen-since deepen-not deepen-relative no-progress include-tag multi_ack_detailed no-done symref=HEAD:refs/heads/master agent=git/2.11.1
+003ffac36d407e123c2499149fcc8c1fc8ebe5ecd301 refs/heads/master
+0000
+```
+
+Looks complicated. I'll revisit this later, but for now I've added a Procfile
+that will spawn `git daemon` to handle the git access.
+
+For now this means configuring cargo to talk to this registry will be like:
+
+```
+$ cat .cargo/config.toml
+[registries]
+# Using git protocol to talk to the index repo for now...
+estuary = { index = "git://localhost:9418/" }
+```
