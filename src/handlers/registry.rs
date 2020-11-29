@@ -150,9 +150,9 @@ pub async fn login(_req: HttpRequest) -> impl Responder {
 pub async fn download(
     path: web::Path<Crate>,
     settings: web::Data<Settings>,
-) -> ApiResult<fs::NamedFile> {
+) -> actix_web::Result<fs::NamedFile> {
     let crate_file =
-        crate::storage::get_crate_file_path(&settings.crate_dir, &path.crate_name, &path.version)?;
+        crate::storage::get_crate_file_path(&settings.crate_dir, &path.crate_name, &path.version);
     log::debug!("serving `{}`", crate_file.display());
     Ok(fs::NamedFile::open(crate_file)?)
 }
@@ -298,7 +298,6 @@ mod tests {
 
     #[actix_rt::test]
     async fn test_unyank() {
-        assert_eq!(1101, MY_CRATE_0_1_0.len());
         let data_root = TempDir::new("estuary_test").unwrap();
         let settings = get_test_settings(&data_root.path());
         let package_index = get_test_package_index(&settings.index_dir);
@@ -331,5 +330,58 @@ mod tests {
 
         let resp: serde_json::Value = test::read_response_json(&mut app, req).await;
         assert!(resp["ok"].as_bool().unwrap());
+    }
+
+    #[actix_rt::test]
+    async fn test_download_existing_crate_is_ok() {
+        let data_root = TempDir::new("estuary_test").unwrap();
+        let settings = get_test_settings(&data_root.path());
+        let package_index = get_test_package_index(&settings.index_dir);
+
+        let mut app = test::init_service(
+            App::new()
+                .app_data(settings.clone())
+                .app_data(package_index.clone())
+                .configure(crate::handlers::configure_routes),
+        )
+        .await;
+
+        // Publish (so we can download)
+        let req = test::TestRequest::put()
+            .uri("/api/v1/crates/new")
+            .set_payload(MY_CRATE_0_1_0)
+            .to_request();
+
+        let _: serde_json::Value = test::read_response_json(&mut app, req).await;
+
+        let req = test::TestRequest::get()
+            .uri("/api/v1/crates/my-crate/0.1.0/download")
+            .to_request();
+
+        let resp = test::call_service(&mut app, req).await;
+        assert_eq!(StatusCode::OK, resp.status());
+    }
+
+    #[actix_rt::test]
+    async fn test_download_nonexistent_crate_is_not_found() {
+        let data_root = TempDir::new("estuary_test").unwrap();
+        let settings = get_test_settings(&data_root.path());
+        let package_index = get_test_package_index(&settings.index_dir);
+
+        let mut app = test::init_service(
+            App::new()
+                .app_data(settings.clone())
+                .app_data(package_index.clone())
+                .configure(crate::handlers::configure_routes),
+        )
+        .await;
+
+        // No crates have been published
+        let req = test::TestRequest::get()
+            .uri("/api/v1/crates/my-crate/0.1.0/download")
+            .to_request();
+
+        let resp = test::call_service(&mut app, req).await;
+        assert_eq!(StatusCode::NOT_FOUND, resp.status());
     }
 }
