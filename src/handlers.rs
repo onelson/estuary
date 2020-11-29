@@ -8,10 +8,6 @@ pub fn configure_routes(cfg: &mut web::ServiceConfig) {
             .service(registry::publish)
             .service(registry::yank)
             .service(registry::unyank)
-            .service(registry::owners_add)
-            .service(registry::owners_remove)
-            .service(registry::owners_list)
-            .service(registry::search)
             .service(registry::download),
     );
 }
