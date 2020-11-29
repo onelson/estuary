@@ -1,5 +1,6 @@
 use crate::errors::ApiResult;
 use crate::package_index::{Dependency, PackageIndex, PackageVersion};
+use crate::Settings;
 use actix_files as fs;
 use actix_web::{delete, get, put, web, HttpRequest, HttpResponse, Responder};
 use anyhow::Context;
@@ -35,8 +36,8 @@ pub struct PartialPackageVersion {
 pub async fn publish(
     mut payload: web::Bytes,
     package_index: web::Data<Mutex<PackageIndex>>,
+    settings: web::Data<Settings>,
 ) -> ApiResponse {
-    let crate_dir = std::env::var("ESTUARY_CRATE_DIR").expect("ESTUARY_CRATE_DIR");
     log::trace!("total len: {}", payload.len());
 
     let metadata_len = { payload.split_to(4).as_ref().read_u32::<LittleEndian>()? } as usize;
@@ -65,7 +66,7 @@ pub async fn publish(
     package_index.publish(&pkg_version)?;
 
     crate::storage::store_crate_file(
-        crate_dir,
+        &settings.crate_dir,
         &pkg_version.name,
         &pkg_version.vers,
         crate_file_bytes.as_ref(),
@@ -145,10 +146,189 @@ pub async fn login(_req: HttpRequest) -> impl Responder {
 }
 
 #[get("/{crate_name}/{version}/download")]
-pub async fn download(path: web::Path<Crate>) -> ApiResult<fs::NamedFile> {
-    let crate_dir = std::env::var("ESTUARY_CRATE_DIR").expect("ESTUARY_CRATE_DIR");
+pub async fn download(
+    path: web::Path<Crate>,
+    settings: web::Data<Settings>,
+) -> ApiResult<fs::NamedFile> {
     let crate_file =
-        crate::storage::get_crate_file_path(crate_dir, &path.crate_name, &path.version)?;
+        crate::storage::get_crate_file_path(&settings.crate_dir, &path.crate_name, &path.version)?;
     log::debug!("serving `{}`", crate_file.display());
     Ok(fs::NamedFile::open(crate_file)?)
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::package_index::{Config, PackageIndex};
+    use crate::Settings;
+    use actix_web::http::StatusCode;
+    use actix_web::{test, web, App};
+    use std::path::Path;
+    use std::sync::Mutex;
+    use tempdir::TempDir;
+
+    /// This is the request body sent to the publish endpoint from an empty bin crate.
+    const MY_CRATE_0_1_0: &[u8] = include_bytes!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/test_data/publish-my-crate-body"
+    ));
+
+    fn get_test_package_index(data_dir: &Path) -> web::Data<Mutex<PackageIndex>> {
+        let config = Config {
+            api: String::new(),
+            dl: String::new(),
+        };
+        web::Data::new(Mutex::new(PackageIndex::init(data_dir, &config).unwrap()))
+    }
+
+    fn get_test_settings(data_dir: &Path) -> web::Data<Settings> {
+        let settings = Settings {
+            crate_dir: data_dir.join("crates").to_path_buf(),
+            index_dir: data_dir.join("index").to_path_buf(),
+        };
+        web::Data::new(settings)
+    }
+
+    #[actix_rt::test]
+    async fn test_login() {
+        let data_root = TempDir::new("estuary_test").unwrap();
+        let settings = get_test_settings(&data_root.path());
+        let package_index = get_test_package_index(&settings.index_dir);
+
+        let mut app = test::init_service(
+            App::new()
+                .app_data(package_index.clone())
+                .app_data(settings.clone())
+                .configure(crate::handlers::configure_routes),
+        )
+        .await;
+
+        let req = test::TestRequest::get().uri("/me").to_request();
+        let resp = test::call_service(&mut app, req).await;
+        assert_eq!(StatusCode::OK, resp.status());
+    }
+
+    #[actix_rt::test]
+    async fn test_publish() {
+        let data_root = TempDir::new("estuary_test").unwrap();
+        let settings = get_test_settings(&data_root.path());
+        let package_index = get_test_package_index(&settings.index_dir);
+
+        let mut app = test::init_service(
+            App::new()
+                .app_data(settings.clone())
+                .app_data(package_index.clone())
+                .configure(crate::handlers::configure_routes),
+        )
+        .await;
+
+        let req = test::TestRequest::put()
+            .uri("/api/v1/crates/new")
+            .set_payload(MY_CRATE_0_1_0)
+            .to_request();
+
+        let resp: serde_json::Value = test::read_response_json(&mut app, req).await;
+        assert!(!resp.as_object().unwrap().contains_key("errors"));
+    }
+
+    #[actix_rt::test]
+    async fn test_publish_twice_is_error() {
+        let data_root = TempDir::new("estuary_test").unwrap();
+        let settings = get_test_settings(&data_root.path());
+        let package_index = get_test_package_index(&settings.index_dir);
+
+        let mut app = test::init_service(
+            App::new()
+                .app_data(settings.clone())
+                .app_data(package_index.clone())
+                .configure(crate::handlers::configure_routes),
+        )
+        .await;
+
+        // First publish
+        let req = test::TestRequest::put()
+            .uri("/api/v1/crates/new")
+            .set_payload(MY_CRATE_0_1_0)
+            .to_request();
+
+        let resp: serde_json::Value = test::read_response_json(&mut app, req).await;
+        // No errors the first time
+        assert!(!resp.as_object().unwrap().contains_key("errors"));
+
+        // Second publish
+        let req = test::TestRequest::put()
+            .uri("/api/v1/crates/new")
+            .set_payload(MY_CRATE_0_1_0)
+            .to_request();
+
+        let resp: serde_json::Value = test::read_response_json(&mut app, req).await;
+        // There should be errors in this case...
+        assert!(resp.as_object().unwrap().contains_key("errors"));
+    }
+
+    #[actix_rt::test]
+    async fn test_yank() {
+        let data_root = TempDir::new("estuary_test").unwrap();
+        let settings = get_test_settings(&data_root.path());
+        let package_index = get_test_package_index(&settings.index_dir);
+
+        let mut app = test::init_service(
+            App::new()
+                .app_data(settings.clone())
+                .app_data(package_index.clone())
+                .configure(crate::handlers::configure_routes),
+        )
+        .await;
+
+        // Publish (so we can yank)
+        let req = test::TestRequest::put()
+            .uri("/api/v1/crates/new")
+            .set_payload(MY_CRATE_0_1_0)
+            .to_request();
+
+        let _: serde_json::Value = test::read_response_json(&mut app, req).await;
+
+        let req = test::TestRequest::delete()
+            .uri("/api/v1/crates/my-crate/0.1.0/yank")
+            .to_request();
+
+        let resp: serde_json::Value = test::read_response_json(&mut app, req).await;
+        assert!(resp["ok"].as_bool().unwrap());
+    }
+
+    #[actix_rt::test]
+    async fn test_unyank() {
+        assert_eq!(1101, MY_CRATE_0_1_0.len());
+        let data_root = TempDir::new("estuary_test").unwrap();
+        let settings = get_test_settings(&data_root.path());
+        let package_index = get_test_package_index(&settings.index_dir);
+
+        let mut app = test::init_service(
+            App::new()
+                .app_data(settings.clone())
+                .app_data(package_index.clone())
+                .configure(crate::handlers::configure_routes),
+        )
+        .await;
+
+        // Publish (so we can yank)
+        let req = test::TestRequest::put()
+            .uri("/api/v1/crates/new")
+            .set_payload(MY_CRATE_0_1_0)
+            .to_request();
+
+        let _: serde_json::Value = test::read_response_json(&mut app, req).await;
+
+        let req = test::TestRequest::delete()
+            .uri("/api/v1/crates/my-crate/0.1.0/yank")
+            .to_request();
+
+        let _: serde_json::Value = test::read_response_json(&mut app, req).await;
+
+        let req = test::TestRequest::put()
+            .uri("/api/v1/crates/my-crate/0.1.0/unyank")
+            .to_request();
+
+        let resp: serde_json::Value = test::read_response_json(&mut app, req).await;
+        assert!(resp["ok"].as_bool().unwrap());
+    }
 }
