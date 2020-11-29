@@ -67,7 +67,7 @@ This means we need to implement at least the read operations for the
 
 - <https://git-scm.com/docs/http-protocol>
 - <https://mincong.io/2018/05/04/git-and-http/>
-
+- <https://github.com/dcu/git-http-server>
 
 ```
 001e# service=git-upload-pack\n
