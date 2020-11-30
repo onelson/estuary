@@ -28,6 +28,7 @@ impl From<std::io::Error> for ApiError {
         Self(other.into())
     }
 }
+
 impl From<serde_json::Error> for ApiError {
     fn from(other: serde_json::Error) -> Self {
         Self(other.into())
@@ -44,5 +45,32 @@ impl ResponseError for ApiError {
     fn error_response(&self) -> HttpResponse {
         HttpResponseBuilder::new(self.status_code())
             .json(json!({"errors": [{ "detail": format!("{}", self.0) }]}))
+    }
+}
+
+pub type GitResult<T> = std::result::Result<T, GitError>;
+
+#[derive(Debug)]
+pub struct GitError(Error);
+
+impl Display for GitError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl From<std::io::Error> for GitError {
+    fn from(other: std::io::Error) -> Self {
+        Self(other.into())
+    }
+}
+
+impl ResponseError for GitError {
+    fn status_code(&self) -> StatusCode {
+        StatusCode::INTERNAL_SERVER_ERROR
+    }
+
+    fn error_response(&self) -> HttpResponse {
+        HttpResponseBuilder::new(self.status_code()).body(format!("{}", self.0))
     }
 }

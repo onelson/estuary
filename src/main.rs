@@ -32,8 +32,8 @@ impl Settings {
             .into();
 
         Ok(Self {
-            crate_dir: crate_dir.canonicalize()?,
-            index_dir: index_dir.canonicalize()?,
+            crate_dir,
+            index_dir,
         })
     }
 }
@@ -51,6 +51,9 @@ async fn main() -> Result<()> {
     let bind_addr = format!("{}:{}", host, port);
     let config = Config::from_env()?;
     let settings = Settings::from_env()?;
+
+    std::fs::create_dir_all(&settings.index_dir)?;
+    std::fs::create_dir_all(&settings.crate_dir)?;
 
     log::info!("Server starting on `{}`", bind_addr);
     log::info!("\tIndex Dir: `{}`", settings.index_dir.display());
