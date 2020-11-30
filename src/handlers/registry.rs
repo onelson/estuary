@@ -163,7 +163,7 @@ mod tests {
     use crate::Settings;
     use actix_web::http::StatusCode;
     use actix_web::{test, web, App};
-    use std::path::Path;
+    use std::path::{Path, PathBuf};
     use std::sync::Mutex;
     use tempdir::TempDir;
 
@@ -185,6 +185,7 @@ mod tests {
         let settings = Settings {
             crate_dir: data_dir.join("crates").to_path_buf(),
             index_dir: data_dir.join("index").to_path_buf(),
+            git_binary: PathBuf::from("git"),
         };
         web::Data::new(settings)
     }
