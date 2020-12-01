@@ -103,7 +103,7 @@ With this entry added to your config, the next step is to "authenticate."
 $ cargo login --registry estuary
 ```
 
-> Note that Estuary currently does with the token to validate access.
+> Note that Estuary currently does nothing with the token to validate access.
 > The token currently *means nothing*, yet cargo *requires it*.
 
 From here, you can publish crates to Estuary with
