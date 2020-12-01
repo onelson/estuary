@@ -130,7 +130,7 @@ Environment variables can also be used to configure cargo.
 See the docs on [using an alternate registry] and
 [publishing to an alternate registry] for more on this.
 
-[using an alternate registry]: https://doc.rust-lang.org/cargo/reference/registries.html#using-an-alternate-registry>
+[using an alternate registry]: https://doc.rust-lang.org/cargo/reference/registries.html#using-an-alternate-registry
 [publishing to an alternate registry]: https://doc.rust-lang.org/cargo/reference/registries.html#publishing-to-an-alternate-registry
 [alternate registry]: https://doc.rust-lang.org/cargo/reference/registries.html
 [devpi]: https://github.com/devpi/devpi
