@@ -608,7 +608,7 @@ dependencies = [
 
 [[package]]
 name = "estuary"
-version = "0.1.0"
+version = "0.1.0-alpha"
 dependencies = [
  "actix-files",
  "actix-rt",

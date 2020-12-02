@@ -50,7 +50,7 @@ pub async fn get_info_refs(
     query: web::Query<Query>,
 ) -> GitResult<HttpResponse> {
     let service_name = query.service.as_service_name();
-    let output = Command::new("git")
+    let output = Command::new(&settings.git_binary)
         .args(&[
             service_name,
             "--stateless-rpc",
@@ -83,7 +83,7 @@ pub async fn upload_pack(
     payload: web::Bytes,
 ) -> GitResult<HttpResponse> {
     let service_name = Service::UploadPack.as_service_name();
-    let mut cmd = Command::new("git")
+    let mut cmd = Command::new(&settings.git_binary)
         .args(&[
             service_name,
             "--stateless-rpc",

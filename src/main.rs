@@ -1,7 +1,6 @@
 use actix_web::{middleware, web, App, HttpServer};
-use anyhow::{Context, Result};
+use anyhow::{anyhow, Context, Result};
 use package_index::{Config, PackageIndex};
-
 use std::env;
 use std::path::PathBuf;
 use std::sync::Mutex;
@@ -17,9 +16,14 @@ pub struct Settings {
     /// Root path for storing `.crate` files when they are published.
     pub crate_dir: PathBuf,
     /// Location for the git repo that tracks changes to the package index.
+    ///
     /// Note that this should be the path to the working tree, not the `.git`
     /// directory inside it.
     pub index_dir: PathBuf,
+    /// Optionally specify a path to `git`.
+    ///
+    /// Defaults to just "git", expecting it to be in your `PATH`.
+    pub git_binary: PathBuf,
 }
 
 impl Settings {
@@ -31,9 +35,22 @@ impl Settings {
             .context("ESTUARY_CRATE_DIR")?
             .into();
 
+        let git_binary = if let Ok(s) = env::var("ESTUARY_GIT_BIN") {
+            match PathBuf::from(s)
+                .canonicalize()
+                .context("Invalid value ESTUARY_GIT_BIN")?
+            {
+                pb if pb.is_file() => pb,
+                _ => return Err(anyhow!("Invalid value ESTUARY_GIT_BIN")),
+            }
+        } else {
+            PathBuf::from("git")
+        };
+
         Ok(Self {
             crate_dir,
             index_dir,
+            git_binary,
         })
     }
 }
@@ -43,8 +60,8 @@ async fn main() -> Result<()> {
     dotenv::dotenv().ok();
     env_logger::init();
 
-    let host = env::var("HOST").unwrap_or_else(|_| String::from("0.0.0.0"));
-    let port: u16 = env::var("PORT")
+    let host = env::var("ESTUARY_HOST").unwrap_or_else(|_| String::from("0.0.0.0"));
+    let port: u16 = env::var("ESTUARY_PORT")
         .unwrap_or_else(|_| String::from("7878"))
         .parse()?;
 

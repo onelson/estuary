@@ -40,8 +40,9 @@ pub struct Config {
 
 impl Config {
     pub fn from_env() -> Result<Self> {
-        let dl = env::var("ESTUARY_DL_URL").context("ESTUARY_DL_URL is required")?;
         let api = env::var("ESTUARY_API_URL").context("ESTUARY_API_URL is required")?;
+        let dl = env::var("ESTUARY_DL_URL")
+            .unwrap_or_else(|_| format!("{}/api/v1/crates/{{crate}}/{{version}}/download", api));
 
         Ok(Self { dl, api })
     }
@@ -232,7 +233,7 @@ impl PackageIndex {
                 let PackageVersion { vers, .. } = serde_json::from_str(line)?;
                 if vers == pkg.vers {
                     return Err(anyhow!(
-                        "Failed to publish `{} v{}`. Already exists in index.",
+                        "Failed to publish `{} v{}`. Crate already exists in index.",
                         pkg.name,
                         pkg.vers
                     ));
