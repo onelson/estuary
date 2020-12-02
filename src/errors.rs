@@ -59,6 +59,18 @@ impl Display for GitError {
     }
 }
 
+impl From<Error> for GitError {
+    fn from(other: Error) -> Self {
+        Self(other)
+    }
+}
+
+impl From<actix_web::error::BlockingError<Error>> for GitError {
+    fn from(other: actix_web::error::BlockingError<Error>) -> Self {
+        Self(other.into())
+    }
+}
+
 impl From<std::io::Error> for GitError {
     fn from(other: std::io::Error) -> Self {
         Self(other.into())

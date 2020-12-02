@@ -159,42 +159,16 @@ pub async fn download(
 
 #[cfg(test)]
 mod tests {
-    use crate::package_index::{Config, PackageIndex};
-    use crate::Settings;
+    use crate::test_helpers;
+    use crate::test_helpers::MY_CRATE_0_1_0;
     use actix_web::http::StatusCode;
-    use actix_web::{test, web, App};
-    use std::path::{Path, PathBuf};
-    use std::sync::Mutex;
-    use tempdir::TempDir;
-
-    /// This is the request body sent to the publish endpoint from an empty bin crate.
-    const MY_CRATE_0_1_0: &[u8] = include_bytes!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/test_data/publish-my-crate-body"
-    ));
-
-    fn get_test_package_index(data_dir: &Path) -> web::Data<Mutex<PackageIndex>> {
-        let config = Config {
-            api: String::new(),
-            dl: String::new(),
-        };
-        web::Data::new(Mutex::new(PackageIndex::init(data_dir, &config).unwrap()))
-    }
-
-    fn get_test_settings(data_dir: &Path) -> web::Data<Settings> {
-        let settings = Settings {
-            crate_dir: data_dir.join("crates").to_path_buf(),
-            index_dir: data_dir.join("index").to_path_buf(),
-            git_binary: PathBuf::from("git"),
-        };
-        web::Data::new(settings)
-    }
+    use actix_web::{test, App};
 
     #[actix_rt::test]
     async fn test_login() {
-        let data_root = TempDir::new("estuary_test").unwrap();
-        let settings = get_test_settings(&data_root.path());
-        let package_index = get_test_package_index(&settings.index_dir);
+        let data_root = test_helpers::get_data_root();
+        let settings = test_helpers::get_test_settings(&data_root.path());
+        let package_index = test_helpers::get_test_package_index(&settings.index_dir);
 
         let mut app = test::init_service(
             App::new()
@@ -211,9 +185,9 @@ mod tests {
 
     #[actix_rt::test]
     async fn test_publish() {
-        let data_root = TempDir::new("estuary_test").unwrap();
-        let settings = get_test_settings(&data_root.path());
-        let package_index = get_test_package_index(&settings.index_dir);
+        let data_root = test_helpers::get_data_root();
+        let settings = test_helpers::get_test_settings(&data_root.path());
+        let package_index = test_helpers::get_test_package_index(&settings.index_dir);
 
         let mut app = test::init_service(
             App::new()
@@ -234,9 +208,9 @@ mod tests {
 
     #[actix_rt::test]
     async fn test_publish_twice_is_error() {
-        let data_root = TempDir::new("estuary_test").unwrap();
-        let settings = get_test_settings(&data_root.path());
-        let package_index = get_test_package_index(&settings.index_dir);
+        let data_root = test_helpers::get_data_root();
+        let settings = test_helpers::get_test_settings(&data_root.path());
+        let package_index = test_helpers::get_test_package_index(&settings.index_dir);
 
         let mut app = test::init_service(
             App::new()
@@ -269,9 +243,9 @@ mod tests {
 
     #[actix_rt::test]
     async fn test_yank() {
-        let data_root = TempDir::new("estuary_test").unwrap();
-        let settings = get_test_settings(&data_root.path());
-        let package_index = get_test_package_index(&settings.index_dir);
+        let data_root = test_helpers::get_data_root();
+        let settings = test_helpers::get_test_settings(&data_root.path());
+        let package_index = test_helpers::get_test_package_index(&settings.index_dir);
 
         let mut app = test::init_service(
             App::new()
@@ -299,9 +273,9 @@ mod tests {
 
     #[actix_rt::test]
     async fn test_unyank() {
-        let data_root = TempDir::new("estuary_test").unwrap();
-        let settings = get_test_settings(&data_root.path());
-        let package_index = get_test_package_index(&settings.index_dir);
+        let data_root = test_helpers::get_data_root();
+        let settings = test_helpers::get_test_settings(&data_root.path());
+        let package_index = test_helpers::get_test_package_index(&settings.index_dir);
 
         let mut app = test::init_service(
             App::new()
@@ -335,9 +309,9 @@ mod tests {
 
     #[actix_rt::test]
     async fn test_download_existing_crate_is_ok() {
-        let data_root = TempDir::new("estuary_test").unwrap();
-        let settings = get_test_settings(&data_root.path());
-        let package_index = get_test_package_index(&settings.index_dir);
+        let data_root = test_helpers::get_data_root();
+        let settings = test_helpers::get_test_settings(&data_root.path());
+        let package_index = test_helpers::get_test_package_index(&settings.index_dir);
 
         let mut app = test::init_service(
             App::new()
@@ -365,9 +339,9 @@ mod tests {
 
     #[actix_rt::test]
     async fn test_download_nonexistent_crate_is_not_found() {
-        let data_root = TempDir::new("estuary_test").unwrap();
-        let settings = get_test_settings(&data_root.path());
-        let package_index = get_test_package_index(&settings.index_dir);
+        let data_root = test_helpers::get_data_root();
+        let settings = test_helpers::get_test_settings(&data_root.path());
+        let package_index = test_helpers::get_test_package_index(&settings.index_dir);
 
         let mut app = test::init_service(
             App::new()

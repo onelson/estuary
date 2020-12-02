@@ -9,6 +9,7 @@
 use crate::errors::GitResult;
 use crate::Settings;
 use actix_web::{get, post, web, HttpResponse};
+use anyhow::Context;
 use serde::Deserialize;
 use std::io::Write;
 use std::process::{Command, Stdio};
@@ -49,15 +50,21 @@ pub async fn get_info_refs(
     settings: web::Data<Settings>,
     query: web::Query<Query>,
 ) -> GitResult<HttpResponse> {
-    let service_name = query.service.as_service_name();
-    let output = Command::new(&settings.git_binary)
-        .args(&[
-            service_name,
-            "--stateless-rpc",
-            "--advertise-refs",
-            &settings.index_dir.display().to_string(),
-        ])
-        .output()?;
+    let service_name = query.service.as_service_name().to_string();
+    let svc = service_name.clone();
+    let output = web::block(move || {
+        let service_name = svc;
+        Command::new(&settings.git_binary)
+            .args(&[
+                &service_name,
+                "--stateless-rpc",
+                "--advertise-refs",
+                &settings.index_dir.display().to_string(),
+            ])
+            .output()
+            .context("upload-pack-advertisement")
+    })
+    .await?;
 
     log::trace!("git says: {:?}", &output);
 
@@ -66,14 +73,14 @@ pub async fn get_info_refs(
     write!(
         body,
         "{}",
-        pkt_line(&format!("# service=git-{}\n", service_name))
+        pkt_line(&format!("# service=git-{}\n", &service_name))
     )?;
 
     write!(body, "0000")?;
     body.extend(output.stdout);
 
     Ok(HttpResponse::Ok()
-        .content_type(format!("application/x-git-{}-advertisement", service_name))
+        .content_type(format!("application/x-git-{}-advertisement", &service_name))
         .body(body))
 }
 
@@ -83,28 +90,34 @@ pub async fn upload_pack(
     payload: web::Bytes,
 ) -> GitResult<HttpResponse> {
     let service_name = Service::UploadPack.as_service_name();
-    let mut cmd = Command::new(&settings.git_binary)
-        .args(&[
-            service_name,
-            "--stateless-rpc",
-            &settings.index_dir.display().to_string(),
-        ])
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .spawn()?;
 
-    cmd.stdin.as_mut().unwrap().write_all(&payload)?;
-    let output = cmd.wait_with_output()?;
+    let output = web::block(move || {
+        let mut cmd = Command::new(&settings.git_binary)
+            .args(&[
+                service_name,
+                "--stateless-rpc",
+                &settings.index_dir.display().to_string(),
+            ])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .spawn()
+            .context("spawn")?;
+
+        cmd.stdin
+            .as_mut()
+            .unwrap()
+            .write_all(&payload)
+            .context("git stdin")?;
+        cmd.wait_with_output().context("git output")
+    })
+    .await?;
 
     if output.status.success() {
         Ok(HttpResponse::Ok()
             .content_type(format!("application/x-git-{}-result", service_name))
             .body(output.stdout))
     } else {
-        log::error!(
-            "git upload-pack with: `{}`",
-            String::from_utf8_lossy(&output.stderr)
-        );
+        log::error!("git upload-pack failed with: `{:?}`", &output);
         Ok(HttpResponse::InternalServerError().finish())
     }
 }
@@ -112,6 +125,9 @@ pub async fn upload_pack(
 #[cfg(test)]
 mod tests {
     use crate::handlers::git::pkt_line;
+    use crate::test_helpers;
+    use actix_web::http::StatusCode;
+    use actix_web::{test, App};
 
     #[test]
     fn test_pkt_line_from_example() {
@@ -125,5 +141,106 @@ mod tests {
         let input = "";
         let expected = "0004";
         assert_eq!(expected, pkt_line(input));
+    }
+
+    #[actix_rt::test]
+    async fn test_get_info_refs_no_service_query() {
+        let data_root = test_helpers::get_data_root();
+        let settings = test_helpers::get_test_settings(&data_root.path());
+        let package_index = test_helpers::get_test_package_index(&settings.index_dir);
+        let mut app = test::init_service(
+            App::new()
+                .app_data(package_index.clone())
+                .app_data(settings.clone())
+                .configure(crate::handlers::configure_routes),
+        )
+        .await;
+        let req = test::TestRequest::get()
+            .uri("/git/index/info/refs")
+            .to_request();
+        let resp = test::call_service(&mut app, req).await;
+        assert_eq!(StatusCode::BAD_REQUEST, resp.status());
+    }
+
+    #[actix_rt::test]
+    async fn test_get_info_refs_invalid_service_query() {
+        let data_root = test_helpers::get_data_root();
+        let settings = test_helpers::get_test_settings(&data_root.path());
+        let package_index = test_helpers::get_test_package_index(&settings.index_dir);
+        let mut app = test::init_service(
+            App::new()
+                .app_data(package_index.clone())
+                .app_data(settings.clone())
+                .configure(crate::handlers::configure_routes),
+        )
+        .await;
+        let req = test::TestRequest::get()
+            .uri("/git/index/info/refs?service=something%20invalid")
+            .to_request();
+        let resp = test::call_service(&mut app, req).await;
+        assert_eq!(StatusCode::BAD_REQUEST, resp.status());
+    }
+
+    #[actix_rt::test]
+    async fn test_get_info_refs_valid_service_query() {
+        let data_root = test_helpers::get_data_root();
+        let settings = test_helpers::get_test_settings(&data_root.path());
+        let package_index = test_helpers::get_test_package_index(&settings.index_dir);
+        let mut app = test::init_service(
+            App::new()
+                .app_data(package_index.clone())
+                .app_data(settings.clone())
+                .configure(crate::handlers::configure_routes),
+        )
+        .await;
+        let req = test::TestRequest::get()
+            .uri("/git/index/info/refs?service=git-upload-pack")
+            .to_request();
+        let resp = test::call_service(&mut app, req).await;
+        assert_eq!(StatusCode::OK, resp.status());
+    }
+
+    #[actix_rt::test]
+    async fn test_upload_pack_no_body() {
+        let data_root = test_helpers::get_data_root();
+        let settings = test_helpers::get_test_settings(&data_root.path());
+        let package_index = test_helpers::get_test_package_index(&settings.index_dir);
+
+        let mut app = test::init_service(
+            App::new()
+                .app_data(package_index.clone())
+                .app_data(settings.clone())
+                .configure(crate::handlers::configure_routes),
+        )
+        .await;
+        let req = test::TestRequest::post()
+            .uri("/git/index/git-upload-pack")
+            .header("content-type", "application/x-git-upload-pack-request")
+            .header("accept", "application/x-git-upload-pack-result")
+            .to_request();
+        let resp = test::call_service(&mut app, req).await;
+        assert_eq!(StatusCode::INTERNAL_SERVER_ERROR, resp.status());
+    }
+
+    #[actix_rt::test]
+    async fn test_upload_pack_initial_fetch() {
+        let data_root = test_helpers::get_data_root();
+        let settings = test_helpers::get_test_settings(&data_root.path());
+        let package_index = test_helpers::get_test_package_index(&settings.index_dir);
+        let mut app = test::init_service(
+            App::new()
+                .app_data(package_index.clone())
+                .app_data(settings.clone())
+                .configure(crate::handlers::configure_routes),
+        )
+        .await;
+        let req = test::TestRequest::post()
+            .uri("/git/index/git-upload-pack")
+            .header("content-type", "application/x-git-upload-pack-request")
+            .header("accept", "application/x-git-upload-pack-result")
+            .set_payload("0000") // empty fetch, "don't care what you have"
+            .to_request();
+        let resp = test::call_service(&mut app, req).await;
+        assert_eq!(StatusCode::OK, resp.status());
     }
 }
