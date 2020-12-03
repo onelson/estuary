@@ -1,3 +1,5 @@
+#![cfg(not(tarpaulin_include))]
+
 use actix_web::dev::HttpResponseBuilder;
 use actix_web::error::ResponseError;
 use actix_web::http::StatusCode;

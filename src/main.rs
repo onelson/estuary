@@ -55,6 +55,7 @@ impl Settings {
     }
 }
 
+#[cfg(not(tarpaulin_include))]
 #[actix_web::main]
 async fn main() -> Result<()> {
     dotenv::dotenv().ok();
