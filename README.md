@@ -1,6 +1,6 @@
 # Estuary
 
-[![crates.io](https://crates.io/crates/estuary)](https://img.shields.io/crates/v/estuary.svg)
+[![crates.io](https://img.shields.io/crates/v/estuary.svg)](https://crates.io/crates/estuary)
 [![codecov](https://codecov.io/gh/onelson/estuary/branch/main/graph/badge.svg?token=2NJBNOIRL3)](https://codecov.io/gh/onelson/estuary)
 
 An [alternate cargo registry][alternate registry] suitable for *small-scale*
@@ -68,6 +68,26 @@ Required Configuration:
 > running Estuary in an environment where this is not the case, you should
 > specify a path to the `git` binary with `--git-bin` or `ESTUARY_GIT_BIN`.
 
+An [example Dockerfile][Dockerfile] is included in the repo and may serve as a
+good quickstart guide for deploying Estuary.
+
+[Dockerfile]: https://github.com/onelson/estuary/blob/main/example.Dockerfile
+
+To use the example Dockerfile as-is, you can build and run it like so:
+
+```
+# Build the image
+docker build -t estuary-quickstart -f example.Dockerfile .
+
+# You'll want to pick a more permanent spot, but this is our volume for package
+# and index data.
+mkdir /tmp/estuary-data
+
+# Run the image, specifying the port-mapping, volume mount, and base-url
+docker run --rm -it -p 1234:7878 -v /tmp/estuary-data:/var/lib/estuary  \
+  estuary-quickstart  \
+  --base-url=http://localhost:1234
+```
 
 ### Configuring Cargo
 
@@ -102,6 +122,11 @@ From here, you can publish crates to Estuary with
 ```
 $ cargo publish --registry estuary
 ```
+
+> You may want to add a [`publish` field][publish field] to your *private packages*
+> to ensure they aren't accidentally published to crates.io.
+>
+> [publish field]: https://doc.rust-lang.org/cargo/reference/manifest.html#the-publish-field
 
 Crates published to Estuary can be listed as dependencies in other
 crates by specifying the registry name like so:
