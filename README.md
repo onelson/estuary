@@ -100,7 +100,7 @@ Estuary exposes its package index git repository at the following URL:
 To use Estuary for publishing or installing crates via cargo you need to add
 some configuration. 
 
-For example, if you defined your **<base-url>** as `http://estuary.example.com`,
+For example, if you defined your **base url** as `http://estuary.example.com`,
 you would add the following to your `.cargo/config.toml`:
 
 ```toml
