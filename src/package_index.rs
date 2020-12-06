@@ -26,7 +26,6 @@ use git2::Oid;
 use git2::{Repository, RepositoryInitOptions, Signature};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::env;
 use std::fs::OpenOptions;
 use std::io::{BufReader, Read, Write};
 use std::path::{Path, PathBuf};
@@ -36,16 +35,6 @@ use std::path::{Path, PathBuf};
 pub struct Config {
     pub dl: String,
     pub api: String,
-}
-
-impl Config {
-    pub fn from_env() -> Result<Self> {
-        let api = env::var("ESTUARY_API_URL").context("ESTUARY_API_URL is required")?;
-        let dl = env::var("ESTUARY_DL_URL")
-            .unwrap_or_else(|_| format!("{}/api/v1/crates/{{crate}}/{{version}}/download", api));
-
-        Ok(Self { dl, api })
-    }
 }
 
 /// These records appear, one per line per version, in each crate file.

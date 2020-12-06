@@ -1,10 +1,10 @@
 use actix_web::{middleware, web, App, HttpServer};
-use anyhow::{anyhow, Context, Result};
+use anyhow::Result;
 use package_index::{Config, PackageIndex};
-use std::env;
 use std::path::PathBuf;
 use std::sync::Mutex;
 
+mod cli;
 mod errors;
 mod handlers;
 mod package_index;
@@ -26,49 +26,26 @@ pub struct Settings {
     pub git_binary: PathBuf,
 }
 
-impl Settings {
-    pub fn from_env() -> Result<Self> {
-        let index_dir: PathBuf = env::var("ESTUARY_INDEX_DIR")
-            .context("ESTUARY_INDEX_DIR")?
-            .into();
-        let crate_dir: PathBuf = env::var("ESTUARY_CRATE_DIR")
-            .context("ESTUARY_CRATE_DIR")?
-            .into();
-
-        let git_binary = if let Ok(s) = env::var("ESTUARY_GIT_BIN") {
-            match PathBuf::from(s)
-                .canonicalize()
-                .context("Invalid value ESTUARY_GIT_BIN")?
-            {
-                pb if pb.is_file() => pb,
-                _ => return Err(anyhow!("Invalid value ESTUARY_GIT_BIN")),
-            }
-        } else {
-            PathBuf::from("git")
-        };
-
-        Ok(Self {
-            crate_dir,
-            index_dir,
-            git_binary,
-        })
-    }
-}
-
 #[cfg(not(tarpaulin_include))]
 #[actix_web::main]
 async fn main() -> Result<()> {
+    #[cfg(feature = "dotenv")]
     dotenv::dotenv().ok();
+
     env_logger::init();
 
-    let host = env::var("ESTUARY_HOST").unwrap_or_else(|_| String::from("0.0.0.0"));
-    let port: u16 = env::var("ESTUARY_PORT")
-        .unwrap_or_else(|_| String::from("7878"))
-        .parse()?;
+    let args = cli::parse_args();
 
-    let bind_addr = format!("{}:{}", host, port);
-    let config = Config::from_env()?;
-    let settings = Settings::from_env()?;
+    let bind_addr = format!("{}:{}", args.http_host, args.http_port);
+    let config = Config {
+        dl: args.download_url(),
+        api: args.base_url().to_string(),
+    };
+    let settings = Settings {
+        crate_dir: args.crate_dir,
+        index_dir: args.index_dir,
+        git_binary: args.git_bin,
+    };
 
     std::fs::create_dir_all(&settings.index_dir)?;
     std::fs::create_dir_all(&settings.crate_dir)?;
