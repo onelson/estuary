@@ -1,5 +1,5 @@
 use actix_web::web;
-
+pub mod frontend;
 pub mod git;
 pub mod registry;
 
@@ -16,5 +16,6 @@ pub fn configure_routes(cfg: &mut web::ServiceConfig) {
                 .service(registry::yank)
                 .service(registry::unyank)
                 .service(registry::download),
-        );
+        )
+        .service(frontend::landing);
 }

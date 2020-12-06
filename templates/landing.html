@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <title>{{ name }}</title>
+</head>
+<body>
+<h1>{{ name }}</h1>
+<h3>
+    {% if !all %}
+    {{ limit }} Most Recent Publishes:
+    {% else %}
+    All Publishes:
+    {% endif %}
+</h3>
+<ul>
+    {% for (pkg, vers) in packages %}
+    <li>{{ pkg }} {{ vers }}</li>
+    {% endfor %}
+</ul>
+{% if !all %}
+<p>
+    <a href="?all=true">Show All Publishes</a>
+</p>
+{% endif %}
+</body>
+</html>
