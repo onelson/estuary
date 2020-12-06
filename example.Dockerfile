@@ -1,6 +1,6 @@
 # This Dockerfile serves as an example of how to run Estuary
 
-FROM rust:slim-buster
+FROM rust:1-slim-buster
 
 # Estuary relies on being able to run `git` on the command-line.
 # It additionally uses the `git2` crate which indirectly depends on `libssl`.
