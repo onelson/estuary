@@ -336,6 +336,30 @@ impl PackageIndex {
             .map(|entry| (entry.id_new(), entry.message().map(String::from)))
             .collect())
     }
+
+    pub fn get_publishes(&self, limit: Option<usize>) -> Result<Vec<(String, String)>> {
+        let reflog = self.repo.reflog("HEAD")?;
+        let it = reflog.iter().filter_map(|entry| {
+            let msg = entry.message().unwrap_or("");
+            if msg.contains("publish crate") {
+                let middle = msg.splitn(3, '`').nth(1).unwrap();
+                let mut parts = middle.split_whitespace();
+                let (pkg, vers) = (
+                    parts.next().unwrap().to_string(),
+                    parts.next().unwrap().to_string(),
+                );
+                Some((pkg, vers))
+            } else {
+                None
+            }
+        });
+
+        if let Some(limit) = limit {
+            Ok(it.take(limit).collect())
+        } else {
+            Ok(it.collect())
+        }
+    }
 }
 
 /// Generate the directory name for a package file in the index.
