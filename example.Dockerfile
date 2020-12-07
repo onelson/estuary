@@ -9,7 +9,7 @@ RUN apt-get update && apt-get install -y \
   pkg-config libssl-dev \
   && rm -rf /var/lib/apt/lists/*
 
-RUN cargo install estuary --vers=0.1.0-alpha
+RUN cargo install estuary
 
 
 # Use a volume to store our service data
