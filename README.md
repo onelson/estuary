@@ -1,7 +1,10 @@
 # Estuary
 
 [![crates.io](https://img.shields.io/crates/v/estuary.svg)](https://crates.io/crates/estuary)
+[![crates.io](https://img.shields.io/crates/d/estuary.svg)](https://crates.io/crates/estuary)
+![CI](https://github.com/onelson/estuary/workflows/CI/badge.svg)
 [![codecov](https://codecov.io/gh/onelson/estuary/branch/main/graph/badge.svg?token=2NJBNOIRL3)](https://codecov.io/gh/onelson/estuary)
+
 
 An [alternate cargo registry][alternate registry] suitable for *small-scale*
 crate publishing and distribution.
@@ -14,16 +17,19 @@ waters meet.
 Apparently *the blue crab* calls this sort of environment home.
 
 The high-level mission here is to provide a rust package registry in the same
-vein as [devpi] (for python packages).
+vein as [devpi] (for python packages) or [verdaccio] (for npm packages).
 
-*Devpi* offers a rich set of features including user-centric indexes,
-package search, passive upstream index mirroring and even a web UI.
+Estuary aims to be a lightweight cargo registry for internal/private use.
+
+*Devpi* and *Verdaccio* both offer a rich set of features including
+search, passive upstream index mirroring and even nice a web UI.
 
 Today, *Estuary* only supports the most fundamental registry functions:
 
 - publishing
 - yanking
 - downloading
+- barely a UI at all
 
 These features allow us to `cargo install` or use crates from the registry as
 dependencies in other crates.
@@ -146,8 +152,18 @@ Environment variables can also be used to configure cargo.
 See the docs on [using an alternate registry] and
 [publishing to an alternate registry] for more on this.
 
+## Changelog
+
+### v0.1.0 (2020-12-07)
+
+Initial Release!
+
+This release is very bare bones, offering only the *most essential* registry
+features to allow you to publish and download crates.
+
 [using an alternate registry]: https://doc.rust-lang.org/cargo/reference/registries.html#using-an-alternate-registry
 [publishing to an alternate registry]: https://doc.rust-lang.org/cargo/reference/registries.html#publishing-to-an-alternate-registry
 [alternate registry]: https://doc.rust-lang.org/cargo/reference/registries.html
 [devpi]: https://github.com/devpi/devpi
+[verdaccio]: https://github.com/verdaccio/verdaccio
 [index format]: https://doc.rust-lang.org/cargo/reference/registries.html#index-format
