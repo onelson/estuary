@@ -17,13 +17,13 @@
 //! - [ ] Owners Remove `DELETE /api/v1/crates/{crate_name}/owners`.
 //! - [ ] Search `GET /api/v1/crates` query params: `q` (search terms), `per_page`
 //!   (result limit - default 10, max 100).
-//! - [x] Login `/me` (no details given re: method; cargo uses this for `cargo login`).
+//! - [x] Login `/me` (this one lives in the frontend module).
 
 use crate::errors::ApiResult;
 use crate::package_index::{Dependency, PackageIndex, PackageVersion};
 use crate::Settings;
 use actix_files as fs;
-use actix_web::{delete, get, put, web, HttpRequest, HttpResponse, Responder};
+use actix_web::{delete, get, put, web, HttpResponse};
 use anyhow::Context;
 use byteorder::{LittleEndian, ReadBytesExt};
 use serde::{Deserialize, Serialize};
@@ -126,26 +126,6 @@ pub async fn unyank(
     Ok(HttpResponse::Ok().json(json!({ "ok": true })))
 }
 
-#[get("/me")]
-pub async fn login(_req: HttpRequest) -> impl Responder {
-    HttpResponse::Ok().content_type("text/html").body(
-        r#"
-    <!doctype html>
-    <html>
-    <head/>
-    <body>
-        <dl>
-            <dt>Your token is:</dt>
-            <dd>
-                <pre>0000</pre>
-            </dd>
-        </dl>
-    </body>
-    </html
-    "#,
-    )
-}
-
 #[get("/{crate_name}/{version}/download")]
 pub async fn download(
     path: web::Path<Crate>,
@@ -163,25 +143,6 @@ mod tests {
     use crate::test_helpers::MY_CRATE_0_1_0;
     use actix_web::http::StatusCode;
     use actix_web::{test, App};
-
-    #[actix_rt::test]
-    async fn test_login() {
-        let data_root = test_helpers::get_data_root();
-        let settings = test_helpers::get_test_settings(&data_root.path());
-        let package_index = test_helpers::get_test_package_index(&settings.index_dir);
-
-        let mut app = test::init_service(
-            App::new()
-                .app_data(package_index.clone())
-                .app_data(settings.clone())
-                .configure(crate::handlers::configure_routes),
-        )
-        .await;
-
-        let req = test::TestRequest::get().uri("/me").to_request();
-        let resp = test::call_service(&mut app, req).await;
-        assert_eq!(StatusCode::OK, resp.status());
-    }
 
     #[actix_rt::test]
     async fn test_publish() {
