@@ -1,3 +1,4 @@
 /target
 .env
 _data
+*.code-workspace
