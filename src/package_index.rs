@@ -76,7 +76,7 @@ pub struct Dependency {
     ///
     /// This must be a valid version requirement defined at
     /// https://github.com/steveklabnik/semver#requirements.
-    req: String,
+    version_req: String,
     /// Array of features (as strings) enabled for this dependency.
     features: Vec<String>,
     /// Boolean of whether or not this is an optional dependency.
