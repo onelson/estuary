@@ -202,7 +202,7 @@ impl PackageIndex {
     ///
     /// If the version already exists in the package file, this function will
     /// return an `Err`.
-    pub fn publish(&self, pkg: &PackageVersion) -> Result<()> {
+    pub fn publish(&self, pkg: &PackageVersion, allow_version_reupload: bool) -> Result<()> {
         let root = self.repo.workdir().unwrap();
         let dir = get_package_file_dir(&pkg.name)?;
         std::fs::create_dir_all(root.join(&dir))?;
@@ -217,15 +217,22 @@ impl PackageIndex {
         // Read the file to see if the version we're publishing is already present.
         // Bail if it is.
         {
-            let contents = self.read_package_file(&pkg.name)?;
-            for line in contents.lines() {
-                let PackageVersion { vers, .. } = serde_json::from_str(line)?;
-                if vers == pkg.vers {
-                    return Err(anyhow!(
-                        "Failed to publish `{} v{}`. Crate already exists in index.",
-                        pkg.name,
-                        pkg.vers
-                    ));
+            #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+            struct Partial {
+                vers: String,
+            }
+
+            if !allow_version_reupload {
+                let contents = self.read_package_file(&pkg.name)?;
+                for line in contents.lines() {
+                    let Partial { vers, .. } = serde_json::from_str(line)?;
+                    if vers == pkg.vers {
+                        return Err(anyhow!(
+                            "Failed to publish `{} v{}`. Crate already exists in index.",
+                            pkg.name,
+                            pkg.vers
+                        ));
+                    }
                 }
             }
         }
@@ -691,7 +698,7 @@ mod tests {
 
         let idx = PackageIndex::init(&root, &config).unwrap();
 
-        idx.publish(&pkg).unwrap();
+        idx.publish(&pkg, false).unwrap();
 
         let entries = idx.get_repo_log().unwrap();
 
@@ -729,8 +736,8 @@ mod tests {
 
         let idx = PackageIndex::init(&root, &config).unwrap();
 
-        idx.publish(&pkg).unwrap();
-        assert!(idx.publish(&pkg).is_err());
+        idx.publish(&pkg, false).unwrap();
+        assert!(idx.publish(&pkg, false).is_err());
 
         let entries = idx.get_repo_log().unwrap();
 
@@ -767,7 +774,7 @@ mod tests {
 
         let idx = PackageIndex::init(&root, &config).unwrap();
 
-        idx.publish(&pkg).unwrap();
+        idx.publish(&pkg, false).unwrap();
         idx.set_yanked(&pkg.name, &pkg.vers, true).unwrap();
 
         let entries = idx.get_repo_log().unwrap();
@@ -806,7 +813,7 @@ mod tests {
 
         let idx = PackageIndex::init(&root, &config).unwrap();
 
-        idx.publish(&pkg).unwrap();
+        idx.publish(&pkg, false).unwrap();
 
         idx.set_yanked(&pkg.name, &pkg.vers, true).unwrap();
         idx.set_yanked(&pkg.name, &pkg.vers, false).unwrap();
@@ -856,7 +863,7 @@ mod tests {
 
         let idx = PackageIndex::init(&root, &config).unwrap();
 
-        idx.publish(&pkg).unwrap();
+        idx.publish(&pkg, false).unwrap();
 
         idx.set_yanked(&pkg.name, &pkg.vers, true).unwrap();
         idx.set_yanked(&pkg.name, &pkg.vers, true).unwrap();
@@ -894,7 +901,7 @@ mod tests {
 
         let idx = PackageIndex::init(&root, &config).unwrap();
 
-        idx.publish(&pkg).unwrap();
+        idx.publish(&pkg, false).unwrap();
 
         idx.set_yanked(&pkg.name, &pkg.vers, false).unwrap();
         idx.set_yanked(&pkg.name, &pkg.vers, false).unwrap();

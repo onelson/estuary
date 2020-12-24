@@ -25,6 +25,7 @@ pub fn get_test_package_index(data_dir: &Path) -> web::Data<Mutex<PackageIndex>>
 
 pub fn get_test_settings(data_dir: &Path) -> web::Data<Settings> {
     let settings = Settings {
+        allow_version_reupload: false,
         crate_dir: data_dir.join("crates").to_path_buf(),
         index_dir: data_dir.join("index").to_path_buf(),
         git_binary: PathBuf::from("git"),
