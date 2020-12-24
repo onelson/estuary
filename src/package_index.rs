@@ -479,7 +479,7 @@ mod tests {
             "deps": [
                 {
                     "name": "rand",
-                    "req": "^0.6",
+                    "version_req": "^0.6",
                     "features": ["i128_support"],
                     "optional": false,
                     "default_features": true,
@@ -502,7 +502,7 @@ mod tests {
         assert_eq!("foo", pkg.name);
         assert_eq!("0.1.0", pkg.vers);
         assert_eq!("rand", pkg.deps[0].name);
-        // assert_eq!("^0.6", pkg.deps[0].req);
+        assert_eq!("^0.6", pkg.deps[0].version_req);
         assert_eq!(vec!["i128_support"], pkg.deps[0].features);
         assert_eq!(false, pkg.deps[0].optional);
         assert_eq!(true, pkg.deps[0].default_features);
