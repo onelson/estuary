@@ -76,7 +76,7 @@ pub struct Dependency {
     ///
     /// This must be a valid version requirement defined at
     /// https://github.com/steveklabnik/semver#requirements.
-    req: String,
+    // req: String,
     /// Array of features (as strings) enabled for this dependency.
     features: Vec<String>,
     /// Boolean of whether or not this is an optional dependency.
@@ -219,7 +219,8 @@ impl PackageIndex {
         {
             let contents = self.read_package_file(&pkg.name)?;
             for line in contents.lines() {
-                let PackageVersion { vers, .. } = serde_json::from_str(line)?;
+                let PackageVersion { vers, deps, .. } = serde_json::from_str(line)?;
+                log::info!("Deps: {:?}", deps);
                 if vers == pkg.vers {
                     return Err(anyhow!(
                         "Failed to publish `{} v{}`. Crate already exists in index.",
@@ -501,7 +502,7 @@ mod tests {
         assert_eq!("foo", pkg.name);
         assert_eq!("0.1.0", pkg.vers);
         assert_eq!("rand", pkg.deps[0].name);
-        assert_eq!("^0.6", pkg.deps[0].req);
+        // assert_eq!("^0.6", pkg.deps[0].req);
         assert_eq!(vec!["i128_support"], pkg.deps[0].features);
         assert_eq!(false, pkg.deps[0].optional);
         assert_eq!(true, pkg.deps[0].default_features);
