@@ -9,7 +9,7 @@ homepage = "https://github.com/onelson/estuary"
 keywords = ["registry", "packaging", "dependencies", "index"]
 categories = ["web-programming::http-server", "development-tools", "rust-patterns"]
 license = "Apache-2.0/MIT"
-
+publish = ["estuary"]
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
