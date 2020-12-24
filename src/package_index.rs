@@ -203,7 +203,7 @@ impl PackageIndex {
     ///
     /// If the version already exists in the package file, this function will
     /// return an `Err`.
-    pub fn publish(&self, pkg: &PackageVersion) -> Result<()> {
+    pub fn publish(&self, pkg: &PackageVersion, allow_version_reupload: bool) -> Result<()> {
         let root = self.repo.workdir().unwrap();
         let dir = get_package_file_dir(&pkg.name)?;
         std::fs::create_dir_all(root.join(&dir))?;
@@ -218,15 +218,22 @@ impl PackageIndex {
         // Read the file to see if the version we're publishing is already present.
         // Bail if it is.
         {
-            let contents = self.read_package_file(&pkg.name)?;
-            for line in contents.lines() {
-                let PackageVersion { vers, .. } = serde_json::from_str(line)?;
-                if vers == pkg.vers {
-                    return Err(anyhow!(
-                        "Failed to publish `{} v{}`. Crate already exists in index.",
-                        pkg.name,
-                        pkg.vers
-                    ));
+            #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+            struct Partial {
+                vers: String,
+            }
+
+            if !allow_version_reupload {
+                let contents = self.read_package_file(&pkg.name)?;
+                for line in contents.lines() {
+                    let Partial { vers, .. } = serde_json::from_str(line)?;
+                    if vers == pkg.vers {
+                        return Err(anyhow!(
+                            "Failed to publish `{} v{}`. Crate already exists in index.",
+                            pkg.name,
+                            pkg.vers
+                        ));
+                    }
                 }
             }
         }
@@ -502,7 +509,7 @@ mod tests {
         assert_eq!("foo", pkg.name);
         assert_eq!("0.1.0", pkg.vers);
         assert_eq!("rand", pkg.deps[0].name);
-        assert_eq!("^0.6", pkg.deps[0].version_req);
+        assert_eq!("^0.6", pkg.deps[0].req);
         assert_eq!(vec!["i128_support"], pkg.deps[0].features);
         assert_eq!(false, pkg.deps[0].optional);
         assert_eq!(true, pkg.deps[0].default_features);

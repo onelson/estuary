@@ -15,6 +15,15 @@ pub fn parse_args() -> Opt {
 #[derive(StructOpt)]
 pub struct Opt {
     #[structopt(
+        short,
+        long,
+        parse(from_flag),
+        env = "ESTUARY_ALLOW_VERSION_REUPLOAD",
+        help = "Allow re-uploading a package version that is already present"
+    )]
+    pub allow_version_reupload: bool,
+
+    #[structopt(
         long,
         env = "ESTUARY_BASE_URL",
         help = "The public url for the service."
@@ -90,6 +99,7 @@ mod tests {
     #[test]
     fn test_base_url_trims_trailing_slashes() {
         let opt = Opt {
+            allow_version_reupload: false,
             // weird
             base_url: "http://example.com/////".to_string(),
             index_dir: Default::default(),
@@ -106,6 +116,7 @@ mod tests {
     #[test]
     fn test_download_url_default() {
         let opt = Opt {
+            allow_version_reupload: false,
             base_url: "http://example.com".to_string(),
             index_dir: Default::default(),
             crate_dir: Default::default(),

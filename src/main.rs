@@ -13,6 +13,7 @@ mod storage;
 /// Common configuration details to share with handlers.
 #[derive(Clone, Debug)]
 pub struct Settings {
+    pub allow_version_reupload: bool,
     /// Root path for storing `.crate` files when they are published.
     pub crate_dir: PathBuf,
     /// Location for the git repo that tracks changes to the package index.
@@ -42,6 +43,7 @@ async fn main() -> Result<()> {
         api: args.base_url().to_string(),
     };
     let settings = Settings {
+        allow_version_reupload: args.allow_version_reupload,
         crate_dir: args.crate_dir,
         index_dir: args.index_dir,
         git_binary: args.git_bin,

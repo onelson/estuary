@@ -85,7 +85,7 @@ pub async fn publish(
     };
 
     let package_index = package_index.lock().unwrap();
-    package_index.publish(&pkg_version)?;
+    package_index.publish(&pkg_version, settings.clone().allow_version_reupload)?;
 
     crate::storage::store_crate_file(
         &settings.crate_dir,
