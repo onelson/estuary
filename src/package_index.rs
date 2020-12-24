@@ -76,7 +76,8 @@ pub struct Dependency {
     ///
     /// This must be a valid version requirement defined at
     /// https://github.com/steveklabnik/semver#requirements.
-    version_req: String,
+    #[serde(alias = "version_req")]
+    req: String,
     /// Array of features (as strings) enabled for this dependency.
     features: Vec<String>,
     /// Boolean of whether or not this is an optional dependency.
@@ -207,7 +208,7 @@ impl PackageIndex {
         let dir = get_package_file_dir(&pkg.name)?;
         std::fs::create_dir_all(root.join(&dir))?;
         let pkg_file = dir.join(&pkg.name);
-
+        log::info!("Pkg: {:?}", pkg);
         // "touch" the file to make sure it's available for reading.
         OpenOptions::new()
             .create(true)
@@ -219,8 +220,7 @@ impl PackageIndex {
         {
             let contents = self.read_package_file(&pkg.name)?;
             for line in contents.lines() {
-                let PackageVersion { vers, deps, .. } = serde_json::from_str(line)?;
-                log::info!("Deps: {:?}", deps);
+                let PackageVersion { vers, .. } = serde_json::from_str(line)?;
                 if vers == pkg.vers {
                     return Err(anyhow!(
                         "Failed to publish `{} v{}`. Crate already exists in index.",

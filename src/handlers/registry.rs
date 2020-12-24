@@ -59,7 +59,7 @@ pub async fn publish(
     package_index: web::Data<Mutex<PackageIndex>>,
     settings: web::Data<Settings>,
 ) -> ApiResponse {
-    log::info!("payload: {:?}", payload);
+    log::info!("Payload: {:?}", payload);
     log::trace!("total len: {}", payload.len());
 
     let metadata_len = { payload.split_to(4).as_ref().read_u32::<LittleEndian>()? } as usize;
@@ -67,7 +67,7 @@ pub async fn publish(
 
     let metadata: PartialPackageVersion =
         serde_json::from_slice(payload.split_to(metadata_len).as_ref())?;
-
+    log::info!("Metadata: {:?}", metadata);
     let crate_file_len = { payload.split_to(4).as_ref().read_u32::<LittleEndian>()? } as usize;
     log::trace!("crate file len: {}", crate_file_len);
 
