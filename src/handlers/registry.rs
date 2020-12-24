@@ -59,6 +59,7 @@ pub async fn publish(
     package_index: web::Data<Mutex<PackageIndex>>,
     settings: web::Data<Settings>,
 ) -> ApiResponse {
+    log::info!("payload: {:?}", payload);
     log::trace!("total len: {}", payload.len());
 
     let metadata_len = { payload.split_to(4).as_ref().read_u32::<LittleEndian>()? } as usize;
