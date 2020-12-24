@@ -216,19 +216,19 @@ impl PackageIndex {
 
         // Read the file to see if the version we're publishing is already present.
         // Bail if it is.
-        // {
-        //     let contents = self.read_package_file(&pkg.name)?;
-        //     for line in contents.lines() {
-        //         let PackageVersion { vers, .. } = serde_json::from_str(line)?;
-        //         if vers == pkg.vers {
-        //             return Err(anyhow!(
-        //                 "Failed to publish `{} v{}`. Crate already exists in index.",
-        //                 pkg.name,
-        //                 pkg.vers
-        //             ));
-        //         }
-        //     }
-        // }
+        {
+            let contents = self.read_package_file(&pkg.name)?;
+            for line in contents.lines() {
+                let PackageVersion { vers, .. } = serde_json::from_str(line)?;
+                if vers == pkg.vers {
+                    return Err(anyhow!(
+                        "Failed to publish `{} v{}`. Crate already exists in index.",
+                        pkg.name,
+                        pkg.vers
+                    ));
+                }
+            }
+        }
 
         // Write the version to the file.
         {
