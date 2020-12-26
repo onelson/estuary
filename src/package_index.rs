@@ -946,23 +946,9 @@ mod tests {
     "#,
         )
         .unwrap();
-        let no_req_field: Dependency = serde_json::from_str(
-            r#"
-    {
-    "name": "foo",
-    "default_features": true,
-    "features": [],
-    "optional": false,
-    "kind": "normal",
-    "registry": null,
-    "package": null
-    }
-    "#,
-        )
-        .unwrap();
+
         assert_eq!("0.0.0", &from_cargo.req);
         assert_eq!("0.0.0", &from_index.req);
-        assert_eq!("*", &no_req_field.req);
         assert_eq!(&from_cargo, &from_index);
     }
 }
