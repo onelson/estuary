@@ -1,6 +1,6 @@
 [package]
 name = "estuary"
-version = "0.1.0"
+version = "0.1.1"
 authors = ["Owen Nelson <onelson@gmail.com>"]
 edition = "2018"
 description = "An alternative cargo registry suitable for *small-scale* crate publishing and distribution."
