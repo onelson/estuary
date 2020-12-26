@@ -1,5 +1,3 @@
 /target
 .env
 _data
-scripts/
-*.code-workspace
