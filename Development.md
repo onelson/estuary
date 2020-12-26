@@ -1,3 +1,7 @@
+# Dev Workflow Notes
+
+## Running the Procfile
+
 > While the `git daemon` usage has been removed from the project (Estuary is now
 > able to handle git over http itself), the `Procfile` remains.
 >
@@ -27,4 +31,38 @@ variables to configure overmind itself, specifically setting the policy for the
 `git` service.~~
 
 
+## Spying on Cargo
+
+One important client we need to support interactions with is `cargo`. It can be
+helpful to spy on the HTTP request/response cycle between Cargo and Estuary
+during development. My favorite way to do this is by using [mitmproxy].
+
+The most straightforward method for this is to use `mitmproxy` or `mitmweb` in
+reverse proxy mode.
+
+Web UI:
+
+```
+$ mitmweb --mode=reverse:http://localhost:7878
+```
+
+or, Terminal mode:
+
+```
+$ mitproxy --mode=reverse:http://localhost:7878
+```
+
+With the proxy running, update Estuary's base url to http://localhost:8080
+(assuming the default ports).
+
+Lastly, update your cargo registry configuration to point at the proxy instead
+of Estuary by adjusting the port in the index url.
+
+Once this is all setup, all the requests and responses travelling between Cargo
+and Estuary will be visible in the proxy UI. In addition to being a great source
+of feedback, the proxy will offer full request and response bodies for download
+(which is a great help for capturing tricky to build payloads like for publishing
+crates).
+
 [Overmind]: https://github.com/DarthSim/overmind
+[mitmproxy]: https://mitmproxy.org/
