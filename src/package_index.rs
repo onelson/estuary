@@ -76,6 +76,8 @@ pub struct Dependency {
     ///
     /// This must be a valid version requirement defined at
     /// https://github.com/steveklabnik/semver#requirements.
+    // XXX: During publishes, cargo sends this field as `version_req` instead of
+    //   just `req`.
     #[serde(alias = "version_req")]
     req: String,
     /// Array of features (as strings) enabled for this dependency.

@@ -154,6 +154,16 @@ See the docs on [using an alternate registry] and
 
 ## Changelog
 
+### v0.1.1 (2020-12-25)
+
+Small release to fix a highly embarrassing bug 😅.
+Since the issue drastically limits the usefulness of Estuary, v0.1.0 will be
+yanked.
+
+Fixed:
+
+- Crates that have dependencies of their own fail to publish. #12
+
 ### v0.1.0 (2020-12-07)
 
 Initial Release!
