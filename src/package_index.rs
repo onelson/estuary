@@ -340,21 +340,17 @@ impl PackageIndex {
             .collect())
     }
 
-    pub fn get_crates(&self) -> Result<HashMap<(String, String), bool>> {
+    // Get the published versions for crates, "enriched" with whether a specific version has been yanked or not.
+    pub fn get_publishes(&self) -> Result<HashMap<(String, String), bool>> {
         let mut yanked_versions: HashMap<(String, String), bool> = HashMap::new();
         let reflog = self.repo.reflog("HEAD")?;
         reflog
             .iter()
-            .filter_map(|entry| {
+            .filter(|entry| {
                 let msg = entry.message().unwrap_or("");
-                if msg.contains("publish crate")
+                msg.contains("publish crate")
                     || msg.contains("yank crate")
                     || msg.contains("unyank crate")
-                {
-                    Some(entry)
-                } else {
-                    None
-                }
             })
             .for_each(|entry| {
                 let msg = entry.message().unwrap();
@@ -367,7 +363,7 @@ impl PackageIndex {
                 let yanked = msg.contains("yank crate");
 
                 if let Some(val) = yanked_versions.get(&key) {
-                    if yanked && *val == false {
+                    if yanked && !*val {
                         yanked_versions.insert(key, yanked);
                     }
                 } else {

@@ -37,7 +37,7 @@ pub async fn landing(
     let publishes = {
         let index = index.lock().unwrap();
         let mut results = vec![];
-        for ((pkg, vers), yanked) in index.get_crates()?.drain() {
+        for ((pkg, vers), yanked) in index.get_publishes()?.drain() {
             results.push((
                 pkg,
                 vers,
