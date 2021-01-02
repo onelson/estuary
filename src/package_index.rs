@@ -346,6 +346,7 @@ impl PackageIndex {
         let reflog = self.repo.reflog("HEAD")?;
         reflog
             .iter()
+            .rev()
             .filter(|entry| {
                 let msg = entry.message().unwrap_or("");
                 msg.contains("publish crate")
@@ -360,15 +361,8 @@ impl PackageIndex {
                     parts.next().unwrap().to_string(),
                     parts.next().unwrap().to_string(),
                 );
-                let yanked = msg.contains("yank crate");
-
-                if let Some(val) = yanked_versions.get(&key) {
-                    if yanked && !*val {
-                        yanked_versions.insert(key, yanked);
-                    }
-                } else {
-                    yanked_versions.insert(key, yanked);
-                }
+                let yanked = msg.contains("commit: yank crate");
+                yanked_versions.insert(key, yanked);
             });
         Ok(yanked_versions)
     }

@@ -44,6 +44,7 @@ pub async fn landing(
                 String::from(if yanked { "true" } else { "false" }),
             ));
         }
+        results.reverse();
         results
     };
 
