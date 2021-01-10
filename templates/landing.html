@@ -1,10 +1,5 @@
-<!doctype html>
-<html lang="en">
-<head>
-    <title>{{ name }}</title>
-</head>
-<body>
-<h1>{{ name }}</h1>
+{% extends "base.html" %}
+{% block content %}
 <h3>
     {% if !all %}
     {{ limit }} Most Recent Publishes:
@@ -19,8 +14,7 @@
 </ul>
 {% if !all %}
 <p>
-    <a href="?all=true">Show All Publishes</a>
+    <a class="underline" href="?all=true">Show All Publishes</a>
 </p>
 {% endif %}
-</body>
-</html>
+{% endblock %}

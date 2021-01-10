@@ -17,5 +17,11 @@ pub fn configure_routes(cfg: &mut web::ServiceConfig) {
             .service(registry::download),
     )
     .service(frontend::login)
-    .service(frontend::landing);
+    .service(frontend::landing)
+    .service(
+        web::scope("/crates/{crate_name}")
+            .route("/versions", web::get().to(frontend::version_list))
+            .route("/{version}", web::get().to(frontend::crate_detail))
+            .route("", web::get().to(frontend::crate_detail)),
+    );
 }

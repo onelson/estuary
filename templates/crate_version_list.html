@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %}{{ crate_name}} :: All Versions :: Estuary{% endblock %}
+{% block content %}
+<header>
+    <span class="text-2xl text-gray-900">{{ crate_name }}</span>
+    <span class="text-gray-600">All Versions</span>
+</header>
+<div class="my-6">
+    <ul class="list-disc list-inside text-sm">
+        {% for release in releases %}
+        <li>
+            <a class="underline" href="/crates/{{ release.name }}/{{ release.vers }}">{{ release.vers }}</a>
+            {% if release.yanked -%}
+            (<em>yanked</em>)
+            {%- endif %}
+        </li>
+        {% endfor %}
+    </ul>
+</div>
+{% endblock %}
