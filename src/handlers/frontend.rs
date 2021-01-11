@@ -1,9 +1,11 @@
-use crate::errors::GitResult;
+use crate::errors::EstuaryError;
 use crate::package_index::PackageIndex;
 use actix_web::{get, web, HttpRequest};
 use askama::Template;
 use serde::Deserialize;
 use std::sync::Mutex;
+
+type Result<T> = std::result::Result<T, EstuaryError>;
 
 #[derive(Template)]
 #[template(path = "landing.html")]
@@ -30,7 +32,7 @@ pub struct Query {
 pub async fn landing(
     query: web::Query<Query>,
     index: web::Data<Mutex<PackageIndex>>,
-) -> GitResult<LandingTemplate<'static>> {
+) -> Result<LandingTemplate<'static>> {
     let all = query.all.unwrap_or(false);
     let limit = if all { None } else { Some(25) };
 

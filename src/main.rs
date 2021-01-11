@@ -1,5 +1,5 @@
+use crate::errors::EstuaryError;
 use actix_web::{middleware, web, App, HttpServer};
-use anyhow::Result;
 use package_index::{Config, PackageIndex};
 use std::path::PathBuf;
 use std::sync::Mutex;
@@ -28,7 +28,7 @@ pub struct Settings {
 
 #[cfg(not(tarpaulin_include))]
 #[actix_web::main]
-async fn main() -> Result<()> {
+async fn main() -> Result<(), EstuaryError> {
     #[cfg(feature = "dotenv")]
     dotenv::dotenv().ok();
 

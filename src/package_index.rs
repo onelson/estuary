@@ -19,8 +19,7 @@
 //!
 //! Currently none of these restrictions are being performed. This may come in
 //! the future.
-
-use anyhow::{anyhow, Context, Result};
+use crate::errors::PackageIndexError;
 #[cfg(test)]
 use git2::Oid;
 use git2::{Repository, RepositoryInitOptions, Signature};
@@ -29,6 +28,8 @@ use std::collections::HashMap;
 use std::fs::OpenOptions;
 use std::io::{BufReader, Read, Write};
 use std::path::{Path, PathBuf};
+
+type Result<T> = std::result::Result<T, PackageIndexError>;
 
 /// The config data for the registry.
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
@@ -224,11 +225,10 @@ impl PackageIndex {
             for line in contents.lines() {
                 let PackageVersion { vers, .. } = serde_json::from_str(line)?;
                 if vers == pkg.vers {
-                    return Err(anyhow!(
+                    return Err(PackageIndexError::Publish(format!(
                         "Failed to publish `{} v{}`. Crate already exists in index.",
-                        pkg.name,
-                        pkg.vers
-                    ));
+                        pkg.name, pkg.vers
+                    )));
                 }
             }
         }
@@ -384,7 +384,7 @@ impl PackageIndex {
 fn get_package_file_dir(name: &str) -> Result<PathBuf> {
     let name = name.trim().to_lowercase();
     match name.len() {
-        0 => Err(anyhow!("Empty string is not a valid package name.")),
+        0 => Err(PackageIndexError::InvalidPackageName(name)),
         1 => Ok(PathBuf::from("1/")),
         2 => Ok(PathBuf::from("2/")),
         3 => {
@@ -421,8 +421,11 @@ where
 
     if is_empty {
         log::debug!("Creating a fresh index.");
-        let repo = Repository::init_opts(root, RepositoryInitOptions::new().mkdir(true))
-            .context("Failed to init git repo")?;
+        let repo =
+            Repository::init_opts(root, RepositoryInitOptions::new().mkdir(true)).map_err(|e| {
+                log::error!("Failed to init git repo");
+                e
+            })?;
 
         {
             let tree_id = {
@@ -436,7 +439,10 @@ where
         Ok(repo)
     } else {
         log::debug!("Using pre-existing index.");
-        Ok(Repository::open(root).context("Failed to open git repo")?)
+        Ok(Repository::open(root).map_err(|e| {
+            log::error!("Failed to open git repo");
+            e
+        })?)
     }
 }
 

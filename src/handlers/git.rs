@@ -6,13 +6,14 @@
 //! The endpoints here aim to support whatever is necessary for "git fetch" to
 //! work so cargo can do what it needs.
 
-use crate::errors::GitResult;
+use crate::errors::EstuaryError;
 use crate::Settings;
 use actix_web::{get, post, web, HttpResponse};
-use anyhow::Context;
 use serde::Deserialize;
 use std::io::Write;
 use std::process::{Command, Stdio};
+
+type Result<T> = std::result::Result<T, EstuaryError>;
 
 /// Prefixes the string with 4 bytes representing the hex length of the string.
 ///
@@ -49,7 +50,7 @@ pub struct Query {
 pub async fn get_info_refs(
     settings: web::Data<Settings>,
     query: web::Query<Query>,
-) -> GitResult<HttpResponse> {
+) -> Result<HttpResponse> {
     let service_name = query.service.as_service_name().to_string();
     let svc = service_name.clone();
     let output = web::block(move || {
@@ -62,7 +63,6 @@ pub async fn get_info_refs(
                 &settings.index_dir.display().to_string(),
             ])
             .output()
-            .context("upload-pack-advertisement")
     })
     .await?;
 
@@ -88,7 +88,7 @@ pub async fn get_info_refs(
 pub async fn upload_pack(
     settings: web::Data<Settings>,
     payload: web::Bytes,
-) -> GitResult<HttpResponse> {
+) -> Result<HttpResponse> {
     let service_name = Service::UploadPack.as_service_name();
 
     let output = web::block(move || {
@@ -100,15 +100,10 @@ pub async fn upload_pack(
             ])
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .spawn()
-            .context("spawn")?;
+            .spawn()?;
 
-        cmd.stdin
-            .as_mut()
-            .unwrap()
-            .write_all(&payload)
-            .context("git stdin")?;
-        cmd.wait_with_output().context("git output")
+        cmd.stdin.as_mut().unwrap().write_all(&payload)?;
+        cmd.wait_with_output()
     })
     .await?;
 

@@ -13,7 +13,7 @@ pub fn store_crate_file<P: AsRef<Path>>(
     name: &str,
     vers: &str,
     content: &[u8],
-) -> anyhow::Result<()> {
+) -> std::io::Result<()> {
     let fp = get_crate_file_path(root.as_ref(), name, vers);
     fs::create_dir_all(fp.parent().unwrap())?;
 
