@@ -19,12 +19,11 @@
 //!   (result limit - default 10, max 100).
 //! - [x] Login `/me` (this one lives in the frontend module).
 
-use crate::errors::ApiResult;
+use crate::errors::ApiError;
 use crate::package_index::{Dependency, PackageIndex, PackageVersion};
 use crate::Settings;
 use actix_files as fs;
 use actix_web::{delete, get, put, web, HttpResponse};
-use anyhow::Context;
 use byteorder::{LittleEndian, ReadBytesExt};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -32,7 +31,7 @@ use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::sync::Mutex;
 
-pub type ApiResponse = ApiResult<HttpResponse>;
+pub type ApiResponse = Result<HttpResponse, ApiError>;
 
 #[derive(Deserialize)]
 pub struct Crate {
@@ -91,8 +90,7 @@ pub async fn publish(
         &pkg_version.name,
         &pkg_version.vers,
         crate_file_bytes.as_ref(),
-    )
-    .context("Failed to store crate file.")?;
+    )?;
     Ok(HttpResponse::Ok().json(json!({
         // Optional object of warnings to display to the user.
         "warnings": {

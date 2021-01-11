@@ -1,43 +1,25 @@
 #![cfg(not(tarpaulin_include))]
 
 use actix_web::dev::HttpResponseBuilder;
-use actix_web::error::ResponseError;
+use actix_web::error::{BlockingError, ResponseError};
 use actix_web::http::StatusCode;
 use actix_web::HttpResponse;
-use anyhow::Error;
 use serde_json::json;
-use std::fmt::Display;
+use std::fmt::{Debug, Display};
+use thiserror::Error;
 
-pub type ApiResult<T> = std::result::Result<T, ApiError>;
-
-#[derive(Debug)]
-pub struct ApiError(Error);
-
-impl Display for ApiError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
-    }
+#[derive(Debug, Error)]
+pub enum ApiError {
+    #[error("IO error: `{0}`")]
+    IO(#[from] std::io::Error),
+    #[error("JSON parse failed: `{0}`")]
+    JSON(#[from] serde_json::Error),
+    #[error("Package Index failure: `{0}`")]
+    PackageIndex(#[from] PackageIndexError),
 }
 
-impl From<Error> for ApiError {
-    fn from(other: Error) -> Self {
-        Self(other)
-    }
-}
-
-impl From<std::io::Error> for ApiError {
-    fn from(other: std::io::Error) -> Self {
-        Self(other.into())
-    }
-}
-
-impl From<serde_json::Error> for ApiError {
-    fn from(other: serde_json::Error) -> Self {
-        Self(other.into())
-    }
-}
-
-/// Errors are converted to a 200 OK response with a json body (eugh).
+/// For the Api Errors, cargo wants them converted to a 200 OK response with a
+/// json body (eugh).
 /// Cargo will present "detail" keys to the user.
 impl ResponseError for ApiError {
     fn status_code(&self) -> StatusCode {
@@ -46,45 +28,54 @@ impl ResponseError for ApiError {
 
     fn error_response(&self) -> HttpResponse {
         HttpResponseBuilder::new(self.status_code())
-            .json(json!({"errors": [{ "detail": format!("{}", self.0) }]}))
+            .json(json!({"errors": [{ "detail": self.to_string() }]}))
     }
 }
 
-pub type GitResult<T> = std::result::Result<T, GitError>;
+#[derive(Debug, Error)]
+pub enum PackageIndexError {
+    #[error("IO error: `{0}`")]
+    IO(#[from] std::io::Error),
+    #[error("Git error: `{0}`")]
+    Git2(#[from] git2::Error),
+    #[error("JSON parse failed: `{0}`")]
+    JSON(#[from] serde_json::Error),
+    #[error("Publish failed: `{0}`")]
+    Publish(String),
+    #[error("Invalid package name: `{0}`")]
+    InvalidPackageName(String),
+}
 
-#[derive(Debug)]
-pub struct GitError(Error);
+#[derive(Debug, Error)]
+pub enum EstuaryError {
+    #[error("JSON parse failed: `{0}`")]
+    JSON(#[from] serde_json::Error),
+    #[error("IO error: `{0}`")]
+    IO(#[from] std::io::Error),
+    #[error("Package Index failure: `{0}`")]
+    PackageIndex(#[from] PackageIndexError),
+    #[error("Blocking task canceled")]
+    BlockingTaskCanceled,
+}
 
-impl Display for GitError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
+impl<T> From<BlockingError<T>> for EstuaryError
+where
+    T: Into<EstuaryError> + Display + Debug,
+{
+    fn from(e: BlockingError<T>) -> Self {
+        match e {
+            BlockingError::Canceled => EstuaryError::BlockingTaskCanceled,
+            BlockingError::Error(err) => err.into(),
+        }
     }
 }
 
-impl From<Error> for GitError {
-    fn from(other: Error) -> Self {
-        Self(other)
-    }
-}
-
-impl From<actix_web::error::BlockingError<Error>> for GitError {
-    fn from(other: actix_web::error::BlockingError<Error>) -> Self {
-        Self(other.into())
-    }
-}
-
-impl From<std::io::Error> for GitError {
-    fn from(other: std::io::Error) -> Self {
-        Self(other.into())
-    }
-}
-
-impl ResponseError for GitError {
+impl ResponseError for EstuaryError {
     fn status_code(&self) -> StatusCode {
         StatusCode::INTERNAL_SERVER_ERROR
     }
 
     fn error_response(&self) -> HttpResponse {
-        HttpResponseBuilder::new(self.status_code()).body(format!("{}", self.0))
+        HttpResponseBuilder::new(self.status_code()).body(self.to_string())
     }
 }
