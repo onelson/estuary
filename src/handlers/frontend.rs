@@ -11,7 +11,7 @@ type Result<T> = std::result::Result<T, EstuaryError>;
 #[template(path = "landing.html")]
 pub struct LandingTemplate<'a> {
     name: &'a str,
-    packages: Vec<(String, String)>,
+    packages: Vec<(String, String, String)>,
     all: bool,
     limit: usize,
 }
@@ -36,14 +36,23 @@ pub async fn landing(
     let all = query.all.unwrap_or(false);
     let limit = if all { None } else { Some(25) };
 
-    let entries = {
+    let publishes = {
         let index = index.lock().unwrap();
-        index.get_publishes(limit)?
+        let mut results = vec![];
+        for ((pkg, vers), yanked) in index.get_publishes()?.drain() {
+            results.push((
+                pkg,
+                vers,
+                String::from(if yanked { "true" } else { "false" }),
+            ));
+        }
+        results.reverse();
+        results
     };
 
     Ok(LandingTemplate {
         name: "Estuary",
-        packages: entries,
+        packages: publishes,
         all,
         limit: limit.unwrap_or(0),
     })

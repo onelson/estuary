@@ -340,28 +340,31 @@ impl PackageIndex {
             .collect())
     }
 
-    pub fn get_publishes(&self, limit: Option<usize>) -> Result<Vec<(String, String)>> {
+    // Get the published versions for crates, "enriched" with whether a specific version has been yanked or not.
+    pub fn get_publishes(&self) -> Result<HashMap<(String, String), bool>> {
+        let mut yanked_versions: HashMap<(String, String), bool> = HashMap::new();
         let reflog = self.repo.reflog("HEAD")?;
-        let it = reflog.iter().filter_map(|entry| {
-            let msg = entry.message().unwrap_or("");
-            if msg.contains("publish crate") {
+        reflog
+            .iter()
+            .rev()
+            .filter(|entry| {
+                let msg = entry.message().unwrap_or("");
+                msg.contains("publish crate")
+                    || msg.contains("yank crate")
+                    || msg.contains("unyank crate")
+            })
+            .for_each(|entry| {
+                let msg = entry.message().unwrap();
                 let middle = msg.splitn(3, '`').nth(1).unwrap();
                 let mut parts = middle.split_whitespace();
-                let (pkg, vers) = (
+                let key = (
                     parts.next().unwrap().to_string(),
                     parts.next().unwrap().to_string(),
                 );
-                Some((pkg, vers))
-            } else {
-                None
-            }
-        });
-
-        if let Some(limit) = limit {
-            Ok(it.take(limit).collect())
-        } else {
-            Ok(it.collect())
-        }
+                let yanked = msg.contains("commit: yank crate");
+                yanked_versions.insert(key, yanked);
+            });
+        Ok(yanked_versions)
     }
 }
 
