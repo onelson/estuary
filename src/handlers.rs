@@ -16,6 +16,7 @@ pub fn configure_routes(cfg: &mut web::ServiceConfig) {
             .service(registry::unyank)
             .service(registry::download),
     )
+    .service(frontend::styles)
     .service(frontend::login)
     .service(frontend::landing)
     .service(

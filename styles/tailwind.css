@@ -1,0 +1,9 @@
+/**
+This is the "source" for our styles. To build the dist (referenced by the main
+site), run `npm install` and `npm run build` from the repo root.
+*/
+@tailwind base;
+@tailwind components;
+/* custom components */
+/* end: custom components */
+@tailwind utilities;
