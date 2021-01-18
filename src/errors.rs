@@ -56,6 +56,10 @@ pub enum EstuaryError {
     PackageIndex(#[from] PackageIndexError),
     #[error("Blocking task canceled")]
     BlockingTaskCanceled,
+    #[error("Not Found")]
+    NotFound,
+    #[error("Invalid Version: `{0}`")]
+    InvalidVersion(#[from] semver::SemVerError),
 }
 
 impl<T> From<BlockingError<T>> for EstuaryError
@@ -72,7 +76,10 @@ where
 
 impl ResponseError for EstuaryError {
     fn status_code(&self) -> StatusCode {
-        StatusCode::INTERNAL_SERVER_ERROR
+        match self {
+            EstuaryError::NotFound => StatusCode::NOT_FOUND,
+            _ => StatusCode::INTERNAL_SERVER_ERROR,
+        }
     }
 
     fn error_response(&self) -> HttpResponse {

@@ -36,7 +36,7 @@ pub type ApiResponse = Result<HttpResponse, ApiError>;
 #[derive(Deserialize)]
 pub struct Crate {
     crate_name: String,
-    version: String,
+    version: semver::Version,
 }
 
 /// Data supplied by `cargo` during the publishing of a crate.
@@ -46,7 +46,7 @@ pub struct Crate {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct PartialPackageVersion {
     name: String,
-    vers: String,
+    vers: semver::Version,
     deps: Vec<Dependency>,
     features: HashMap<String, Vec<String>>,
     links: Option<String>,

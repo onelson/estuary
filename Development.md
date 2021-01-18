@@ -1,5 +1,12 @@
 # Dev Workflow Notes
 
+
+How to get the test crate published quickly:
+
+```
+curl -X PUT  http://localhost:7878/api/v1/crates/new --data-binary "@test_data/publish-my-crate-body"
+```
+
 ## Running the Procfile
 
 > While the `git daemon` usage has been removed from the project (Estuary is now

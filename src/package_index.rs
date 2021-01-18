@@ -49,7 +49,7 @@ pub struct PackageVersion {
     ///
     /// This must be a valid version number according to the Semantic
     /// Versioning 2.0.0 spec at https://semver.org/.
-    pub vers: String,
+    pub vers: semver::Version,
     /// Array of direct dependencies of the package.
     pub deps: Vec<Dependency>,
     /// A SHA256 checksum of the `.crate` file.
@@ -72,7 +72,7 @@ pub struct Dependency {
     /// If the dependency is renamed from the original package name,
     /// this is the new name. The original package name is stored in
     /// the `package` field.
-    name: String,
+    pub name: String,
     /// The semver requirement for this dependency.
     ///
     /// This must be a valid version requirement defined at
@@ -80,17 +80,17 @@ pub struct Dependency {
     // XXX: During publishes, cargo sends this field as `version_req` instead of
     //   just `req`.
     #[serde(alias = "version_req")]
-    req: String,
+    pub req: String,
     /// Array of features (as strings) enabled for this dependency.
-    features: Vec<String>,
+    pub features: Vec<String>,
     /// Boolean of whether or not this is an optional dependency.
-    optional: bool,
+    pub optional: bool,
     /// Boolean of whether or not default features are enabled.
-    default_features: bool,
+    pub default_features: bool,
     /// The target platform for the dependency.
     /// null if not a target dependency.
     /// Otherwise, a string such as "cfg(windows)".
-    target: Option<String>,
+    pub target: Option<String>,
     /// The dependency kind.
     ///
     /// "dev", "build", or "normal".
@@ -102,15 +102,15 @@ pub struct Dependency {
     //  omits this field instead of weakening the requirement here.
     //  Mainly I want to ensure *new crates* published here are valid per the
     //  *current requirements*.
-    kind: DependencyKind,
+    pub kind: DependencyKind,
     /// The URL of the index of the registry where this dependency is
     /// from as a string. If not specified or null, it is assumed the
     /// dependency is in the current registry.
-    registry: Option<String>,
+    pub registry: Option<String>,
     /// If the dependency is renamed, this is a string of the actual
     /// package name. If not specified or null, this dependency is not
     /// renamed.
-    package: Option<String>,
+    pub package: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
@@ -288,7 +288,7 @@ impl PackageIndex {
     }
 
     /// Updates the `yanked` field of a given package version.
-    pub fn set_yanked(&self, name: &str, version: &str, yanked: bool) -> Result<()> {
+    pub fn set_yanked(&self, name: &str, version: &semver::Version, yanked: bool) -> Result<()> {
         // This is the most naive impl I can think of for this, but it should get
         // things rolling.
         // Read the whole package file, json parse all lines, modify the struct that
@@ -305,7 +305,7 @@ impl PackageIndex {
             .collect::<Result<Vec<PackageVersion>>>()?;
 
         for pkg in &mut pkg_versions {
-            if pkg.vers == version {
+            if &pkg.vers == version {
                 if pkg.yanked == yanked {
                     // Nothing to do if the values are the same.
                     return Ok(());
@@ -362,6 +362,20 @@ impl PackageIndex {
         } else {
             Ok(it.collect())
         }
+    }
+
+    /// Get the [`PackageVersion`] given a crate name and (optional) version.
+    /// When `vers` is not specified, the latest available version will be
+    /// returned.
+    ///
+    /// Returns Ok(None) if the crate exists in the index, but the requested
+    /// version was not found.
+    pub fn get_package_versions(&self, name: &str) -> Result<Vec<PackageVersion>> {
+        let contents = self.read_package_file(name)?;
+        Ok(contents
+            .lines()
+            .map(|s| serde_json::from_str(s).map_err(PackageIndexError::from))
+            .collect::<Result<Vec<PackageVersion>>>()?)
     }
 }
 
@@ -508,7 +522,7 @@ mod tests {
         let pkg: PackageVersion = serde_json::from_value(sample).unwrap();
 
         assert_eq!("foo", pkg.name);
-        assert_eq!("0.1.0", pkg.vers);
+        assert_eq!("0.1.0", pkg.vers.to_string());
         assert_eq!("rand", pkg.deps[0].name);
         assert_eq!("^0.6", pkg.deps[0].req);
         assert_eq!(vec!["i128_support"], pkg.deps[0].features);
@@ -683,7 +697,7 @@ mod tests {
     fn test_publish_create_happy() {
         let pkg = PackageVersion {
             name: "foo".to_string(),
-            vers: "0.1.0".to_string(),
+            vers: "0.1.0".parse().unwrap(),
             deps: vec![],
             cksum: "".to_string(),
             features: Default::default(),
@@ -721,7 +735,7 @@ mod tests {
     fn test_publish_same_vers_twice_is_err() {
         let pkg = PackageVersion {
             name: "foo".to_string(),
-            vers: "0.1.0".to_string(),
+            vers: "0.1.0".parse().unwrap(),
             deps: vec![],
             cksum: "".to_string(),
             features: Default::default(),
@@ -759,7 +773,7 @@ mod tests {
     fn test_yank() {
         let pkg = PackageVersion {
             name: "foo".to_string(),
-            vers: "0.1.0".to_string(),
+            vers: "0.1.0".parse().unwrap(),
             deps: vec![],
             cksum: "".to_string(),
             features: Default::default(),
@@ -798,7 +812,7 @@ mod tests {
     fn test_unyank() {
         let pkg = PackageVersion {
             name: "foo".to_string(),
-            vers: "0.1.0".to_string(),
+            vers: "0.1.0".parse().unwrap(),
             deps: vec![],
             cksum: "".to_string(),
             features: Default::default(),
@@ -848,7 +862,7 @@ mod tests {
     fn test_double_yank() {
         let pkg = PackageVersion {
             name: "foo".to_string(),
-            vers: "0.1.0".to_string(),
+            vers: "0.1.0".parse().unwrap(),
             deps: vec![],
             cksum: "".to_string(),
             features: Default::default(),
@@ -886,7 +900,7 @@ mod tests {
     fn test_double_unyank() {
         let pkg = PackageVersion {
             name: "foo".to_string(),
-            vers: "0.1.0".to_string(),
+            vers: "0.1.0".parse().unwrap(),
             deps: vec![],
             cksum: "".to_string(),
             features: Default::default(),

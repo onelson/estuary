@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block content %}
+<header>
+    <span class="text-2xl text-gray-900">{{ pkg.name }}</span>
+    <span class="text-gray-600">{{ pkg.vers }}</span>
+</header>
+<div class="my-6">
+    {%- if pkg.yanked -%}
+    <p>
+        This version of the crate has been yanked, but
+        <a href="/crates/{{ pkg.name }}/versions">other versions</a> may be
+        available.
+    </p>
+    {%- else -%}
+    <!-- It would be grand if we had a readme to display here, but alas... -->
+    {%- endif -%}
+</div>
+{% endblock %}
+
+{% block sidebar %}
+<dl>
+    <div class="rounded border-gray-300 mt-1 border p-2">
+        <dt class="text-md">Dependencies</dt>
+        <dd>
+            <ul class="list-disc list-inside text-sm">
+                {% for dep in non_dev_deps %}
+                <li>
+                    {{ dep.name }} {{ dep.req }}
+                    {% if dep.optional -%}
+                    <em>optional</em>
+                    {%- endif %}
+                </li>
+                {% endfor %}
+            </ul>
+        </dd>
+    </div>
+    <div class="rounded border-gray-300 mt-1 border p-2">
+        <dt class="text-md">Dev Dependencies</dt>
+        <dd>
+            <ul class="list-disc list-inside text-sm">
+                {% for dep in dev_deps %}
+                <li>
+                    {{ dep.name }} {{ dep.req }}
+                    {% if dep.optional -%}
+                    <em>optional</em>
+                    {%- endif %}
+                </li>
+                {% endfor %}
+            </ul>
+        </dd>
+    </div>
+    <div class="rounded border-gray-300 mt-1 border p-2">
+        <dt>Versions</dt>
+        <dd>
+            <ul class="list-disc list-inside text-sm">
+                {% for release in releases %}
+                <li>
+                    <a class="underline" href="/crates/{{ release.name }}/{{ release.vers }}">{{ release.vers }}</a>
+                    {% if release.yanked -%}
+                    (<em>yanked</em>)
+                    {%- endif %}
+                </li>
+                {% endfor %}
+            </ul>
+        </dd>
+    </div>
+</dl>
+{% endblock %}
