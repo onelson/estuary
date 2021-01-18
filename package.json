@@ -1,0 +1,11 @@
+{
+  "name": "estuary",
+  "version": "0.0.0",
+  "scripts": {
+    "build": "cross-env NODE_ENV=production tailwindcss-cli build styles/tailwind.css -o styles/main.dist.css"
+  },
+  "devDependencies": {
+    "cross-env": "^7.0.3",
+    "tailwindcss-cli": "^0.1.2"
+  }
+}

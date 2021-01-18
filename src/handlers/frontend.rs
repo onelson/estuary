@@ -1,11 +1,22 @@
 use crate::errors::{EstuaryError, PackageIndexError};
 use crate::package_index::{Dependency, DependencyKind, PackageIndex, PackageVersion};
-use actix_web::{get, web, HttpRequest};
+use actix_web::{get, web, HttpRequest, HttpResponse};
 use askama::Template;
 use serde::Deserialize;
 use std::sync::Mutex;
 
 type Result<T> = std::result::Result<T, EstuaryError>;
+
+#[cfg(not(tarpaulin_include))]
+#[get("/styles/main.dist.css")]
+pub async fn styles(_req: HttpRequest) -> HttpResponse {
+    HttpResponse::Ok()
+        .content_type("text/css")
+        .body(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/styles/main.dist.css"
+        )))
+}
 
 #[derive(Template)]
 #[template(path = "landing.html")]
