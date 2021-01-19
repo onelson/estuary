@@ -6,7 +6,7 @@
     <span class="text-gray-600">All Versions</span>
 </header>
 <div class="my-6">
-    <ul class="list-disc list-inside text-sm">
+    <ul class="list-inside text-sm">
         {% for release in releases %}
         <li>
             <a class="underline" href="/crates/{{ release.name }}/{{ release.vers }}">{{ release.vers }}</a>

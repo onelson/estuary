@@ -22,9 +22,7 @@ pub async fn styles(_req: HttpRequest) -> HttpResponse {
 #[template(path = "landing.html")]
 pub struct LandingTemplate<'a> {
     title: &'a str,
-    packages: Vec<(String, String)>,
-    all: bool,
-    limit: usize,
+    packages: Vec<String>,
 }
 
 #[derive(Template)]
@@ -44,29 +42,15 @@ pub struct CrateDetailTemplate {
     releases: Vec<PackageVersion>,
 }
 
-#[derive(Deserialize)]
-pub struct Query {
-    all: Option<bool>,
-}
-
 #[get("/")]
-pub async fn landing(
-    query: web::Query<Query>,
-    index: web::Data<Mutex<PackageIndex>>,
-) -> Result<LandingTemplate<'static>> {
-    let all = query.all.unwrap_or(false);
-    let limit = if all { None } else { Some(25) };
-
-    let entries = {
-        let index = index.lock().unwrap();
-        index.get_publishes(limit)?
-    };
+pub async fn landing(index: web::Data<Mutex<PackageIndex>>) -> Result<LandingTemplate<'static>> {
+    let index = index.lock().unwrap();
+    let mut names = index.list_crates()?;
+    names.sort();
 
     Ok(LandingTemplate {
-        title: "Welcome",
-        packages: entries,
-        all,
-        limit: limit.unwrap_or(0),
+        title: "Crate List",
+        packages: names,
     })
 }
 

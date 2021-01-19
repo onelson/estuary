@@ -1,20 +1,9 @@
 {% extends "base.html" %}
 {% block content %}
-<h3>
-    {% if !all %}
-    {{ limit }} Most Recent Publishes:
-    {% else %}
-    All Publishes:
-    {% endif %}
-</h3>
+<header><span class="text-2xl text-gray-900">Crates</span></header>
 <ul>
-    {% for (pkg, vers) in packages %}
-    <li>{{ pkg }} {{ vers }}</li>
+    {% for pkg in packages %}
+    <li><a class="underline" href="/crates/{{pkg}}">{{ pkg }}</a></li>
     {% endfor %}
 </ul>
-{% if !all %}
-<p>
-    <a class="underline" href="?all=true">Show All Publishes</a>
-</p>
-{% endif %}
 {% endblock %}

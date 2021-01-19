@@ -377,6 +377,31 @@ impl PackageIndex {
             .map(|s| serde_json::from_str(s).map_err(PackageIndexError::from))
             .collect::<Result<Vec<PackageVersion>>>()?)
     }
+
+    /// Get a list of crates published to the index.
+    pub fn list_crates(&self) -> Result<Vec<String>> {
+        let root = self.repo.workdir().unwrap();
+        let mut acc = vec![];
+
+        // TODO: maybe rewrite with a recursive fn and fs::read_dir().
+        //  Probably it'd be more efficient to do it without globs.
+        for entry in glob::glob(&format!("{}/[1,2]/*", root.display()))? {
+            if let Ok(path) = entry {
+                acc.push(path.file_name().unwrap().to_str().unwrap().to_string());
+            }
+        }
+        for entry in glob::glob(&format!("{}/3/?/*", root.display()))? {
+            if let Ok(path) = entry {
+                acc.push(path.file_name().unwrap().to_str().unwrap().to_string());
+            }
+        }
+        for entry in glob::glob(&format!("{}/??/??/*", root.display()))? {
+            if let Ok(path) = entry {
+                acc.push(path.file_name().unwrap().to_str().unwrap().to_string());
+            }
+        }
+        Ok(acc)
+    }
 }
 
 /// Generate the directory name for a package file in the index.
@@ -972,5 +997,112 @@ mod tests {
         assert_eq!("0.0.0", &from_cargo.req);
         assert_eq!("0.0.0", &from_index.req);
         assert_eq!(&from_cargo, &from_index);
+    }
+
+    #[test]
+    fn test_list_crates_empty() {
+        let root = TempDir::new("test_list_crates_empty").unwrap();
+
+        let config = Config {
+            dl: String::from("http://localhost/dl"),
+            api: String::from("http://localhost/api"),
+        };
+
+        let idx = PackageIndex::init(&root, &config).unwrap();
+
+        assert_eq!(Vec::<String>::new(), idx.list_crates().unwrap());
+    }
+
+    #[test]
+    fn test_list_crates_one() {
+        let pkg = PackageVersion {
+            name: "foo".to_string(),
+            vers: "0.1.0".parse().unwrap(),
+            deps: vec![],
+            cksum: "".to_string(),
+            features: Default::default(),
+            yanked: false,
+            links: None,
+        };
+
+        let root = TempDir::new("test_list_crates_one").unwrap();
+
+        let config = Config {
+            dl: String::from("http://localhost/dl"),
+            api: String::from("http://localhost/api"),
+        };
+
+        let idx = PackageIndex::init(&root, &config).unwrap();
+        idx.publish(&pkg).unwrap();
+        assert_eq!(vec!["foo"], idx.list_crates().unwrap());
+    }
+
+    #[test]
+    fn test_list_crates_two() {
+        let pkg1 = PackageVersion {
+            name: "foo".to_string(),
+            vers: "0.1.0".parse().unwrap(),
+            deps: vec![],
+            cksum: "".to_string(),
+            features: Default::default(),
+            yanked: false,
+            links: None,
+        };
+
+        let pkg2 = PackageVersion {
+            name: "bar".to_string(),
+            vers: "0.1.0".parse().unwrap(),
+            deps: vec![],
+            cksum: "".to_string(),
+            features: Default::default(),
+            yanked: false,
+            links: None,
+        };
+
+        let root = TempDir::new("test_list_crates_two").unwrap();
+
+        let config = Config {
+            dl: String::from("http://localhost/dl"),
+            api: String::from("http://localhost/api"),
+        };
+
+        let idx = PackageIndex::init(&root, &config).unwrap();
+
+        idx.publish(&pkg1).unwrap();
+        idx.publish(&pkg2).unwrap();
+        let mut crates = idx.list_crates().unwrap();
+        crates.sort();
+        assert_eq!(vec!["bar", "foo"], crates);
+    }
+
+    #[test]
+    fn test_list_crates_all_lengths() {
+        let names = ["a", "bb", "ccc", "dddd", "eeeee"];
+
+        let root = TempDir::new("test_list_crates_two").unwrap();
+
+        let config = Config {
+            dl: String::from("http://localhost/dl"),
+            api: String::from("http://localhost/api"),
+        };
+
+        let idx = PackageIndex::init(&root, &config).unwrap();
+
+        for name in &names {
+            idx.publish(&PackageVersion {
+                name: name.to_string(),
+                vers: "0.1.0".parse().unwrap(),
+                deps: vec![],
+                cksum: "".to_string(),
+                features: Default::default(),
+                yanked: false,
+                links: None,
+            })
+            .unwrap();
+        }
+
+        let mut crates = idx.list_crates().unwrap();
+        crates.sort();
+        assert_eq!(names.to_vec(), crates);
     }
 }
