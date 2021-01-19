@@ -22,7 +22,7 @@
     <div class="rounded border-gray-300 mt-1 border p-2">
         <dt class="text-md">Dependencies</dt>
         <dd>
-            <ul class="list-disc list-inside text-sm">
+            <ul class="list-inside text-sm">
                 {% for dep in non_dev_deps %}
                 <li>
                     {{ dep.name }} {{ dep.req }}
@@ -37,7 +37,7 @@
     <div class="rounded border-gray-300 mt-1 border p-2">
         <dt class="text-md">Dev Dependencies</dt>
         <dd>
-            <ul class="list-disc list-inside text-sm">
+            <ul class="list-inside text-sm">
                 {% for dep in dev_deps %}
                 <li>
                     {{ dep.name }} {{ dep.req }}
@@ -52,7 +52,7 @@
     <div class="rounded border-gray-300 mt-1 border p-2">
         <dt>Versions</dt>
         <dd>
-            <ul class="list-disc list-inside text-sm">
+            <ul class="list-inside text-sm">
                 {% for release in releases %}
                 <li>
                     <a class="underline" href="/crates/{{ release.name }}/{{ release.vers }}">{{ release.vers }}</a>

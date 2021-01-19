@@ -44,6 +44,10 @@ pub enum PackageIndexError {
     Publish(String),
     #[error("Invalid package name: `{0}`")]
     InvalidPackageName(String),
+    #[error("Glob failed: `{0}`")]
+    Glob(#[from] glob::GlobError),
+    #[error("Glob pattern failed: `{0}`")]
+    GlobPattern(#[from] glob::PatternError),
 }
 
 #[derive(Debug, Error)]
