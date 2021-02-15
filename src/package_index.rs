@@ -340,6 +340,7 @@ impl PackageIndex {
             .collect())
     }
 
+    #[allow(dead_code)] // not currently used but not ready to give up on it.
     pub fn get_publishes(&self, limit: Option<usize>) -> Result<Vec<(String, String)>> {
         let reflog = self.repo.reflog("HEAD")?;
         let it = reflog.iter().filter_map(|entry| {
