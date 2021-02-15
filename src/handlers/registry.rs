@@ -135,6 +135,91 @@ pub async fn download(
     Ok(fs::NamedFile::open(crate_file)?)
 }
 
+/// Query string params for the search endpoint.
+///
+/// At time of writing, the spec mentions a per page parameter to limit the
+/// number of results, but doesn't talk about how to express the offset or
+/// page number.
+///
+/// <https://doc.rust-lang.org/nightly/cargo/reference/registries.html#search>
+#[derive(Deserialize, Debug)]
+pub struct SearchQuery {
+    /// The search terms to match on.
+    q: String,
+    /// default=10, max=100.
+    ///
+    /// Note that `cargo` itself will clamp the value at 100 if the `--limit`
+    /// flag is set to a higher number.
+    per_page: usize,
+}
+
+#[derive(Serialize, Debug)]
+pub struct SearchResult {
+    name: String,
+    max_version: semver::Version,
+    description: String,
+}
+
+#[get("")]
+pub async fn search(
+    query: web::Query<SearchQuery>,
+    index: web::Data<Mutex<PackageIndex>>,
+) -> ApiResponse {
+    let index = index.lock().unwrap();
+    let names = index.list_crates()?;
+    let terms: Vec<&str> = query.q.split(&['-', '_', ' ', '\t'][..]).collect();
+    let mut matches: Vec<(&str, usize)> = names
+        .iter()
+        .filter_map(|name| {
+            let mut score = terms.iter().filter(|&&term| name.contains(term)).count();
+            if name == &query.q {
+                score += 100; // idk, if the search is an exact match, boost it.
+            }
+            if score > 0 {
+                Some((name.as_str(), score))
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    let total_match_count = matches.len();
+    matches.sort_by_key(|(_, score)| 0_isize - *score as isize);
+
+    let crates: Result<Vec<SearchResult>, _> = matches
+        .into_iter()
+        .map(|(name, _)| {
+            index.get_package_versions(name).map(|pkgs| {
+                pkgs.into_iter()
+                    .filter(|pkg| !pkg.yanked)
+                    .max_by(|a, b| a.vers.cmp(&b.vers))
+                    .map(|pkg| SearchResult {
+                        name: pkg.name,
+                        max_version: pkg.vers,
+                        // FIXME: need a db to hold on to this info
+                        description: String::new(),
+                    })
+            })
+        })
+        .filter_map(|res: Result<Option<_>, _>| match res {
+            // Errors should be propagated so we can deal with them in the
+            // handler body.
+            Err(e) => Some(Err(e)),
+            Ok(Some(pkg)) => Some(Ok(pkg)),
+            // filter out crates that don't have any unyanked versions.
+            Ok(None) => None,
+        })
+        .take(query.per_page)
+        .collect();
+
+    Ok(HttpResponse::Ok().json(json!({
+    "crates": crates?,
+    "meta": {
+        "total": total_match_count
+    }
+    })))
+}
+
 #[cfg(test)]
 mod tests {
     use crate::test_helpers;
