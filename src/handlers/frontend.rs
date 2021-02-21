@@ -1,4 +1,4 @@
-use crate::errors::{EstuaryError, PackageIndexError};
+use crate::errors::EstuaryError;
 use crate::package_index::{Dependency, DependencyKind, PackageIndex, PackageVersion};
 use actix_web::{get, web, HttpRequest, HttpResponse};
 use askama::Template;
@@ -82,12 +82,12 @@ pub async fn version_list(
     let releases = index
         .get_package_versions(&path.crate_name)
         .map_err(|e| match e {
-            PackageIndexError::IO(e @ std::io::Error { .. })
+            EstuaryError::IO(e @ std::io::Error { .. })
                 if e.kind() == std::io::ErrorKind::NotFound =>
             {
                 EstuaryError::NotFound
             }
-            _ => e.into(),
+            _ => e,
         })?;
 
     Ok(CrateVersionListTemplate {
@@ -117,12 +117,12 @@ pub async fn crate_detail(
     let all_releases = index
         .get_package_versions(&path.crate_name)
         .map_err(|e| match e {
-            PackageIndexError::IO(e @ std::io::Error { .. })
+            EstuaryError::IO(e @ std::io::Error { .. })
                 if e.kind() == std::io::ErrorKind::NotFound =>
             {
                 EstuaryError::NotFound
             }
-            _ => e.into(),
+            _ => e,
         })?;
 
     let pkg = match &path.version {

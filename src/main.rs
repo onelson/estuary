@@ -1,3 +1,4 @@
+use crate::cli::Command;
 use crate::errors::EstuaryError;
 use actix_web::{middleware, web, App, HttpServer};
 use package_index::{Config, PackageIndex};
@@ -5,10 +6,13 @@ use std::path::PathBuf;
 use std::sync::Mutex;
 
 mod cli;
+mod database;
 mod errors;
 mod handlers;
 mod package_index;
 mod storage;
+
+type Result<T> = std::result::Result<T, EstuaryError>;
 
 /// Common configuration details to share with handlers.
 #[derive(Clone, Debug)]
@@ -26,9 +30,17 @@ pub struct Settings {
     pub git_binary: PathBuf,
 }
 
+impl Settings {
+    fn get_db(&self) -> Result<rusqlite::Connection> {
+        Ok(rusqlite::Connection::open(
+            self.index_dir.join("estuary.sqlite"),
+        )?)
+    }
+}
+
 #[cfg(not(tarpaulin_include))]
 #[actix_web::main]
-async fn main() -> Result<(), EstuaryError> {
+async fn main() -> Result<()> {
     #[cfg(feature = "dotenv")]
     dotenv::dotenv().ok();
 
@@ -36,16 +48,42 @@ async fn main() -> Result<(), EstuaryError> {
 
     let args = cli::parse_args();
 
-    let bind_addr = format!("{}:{}", args.http_host, args.http_port);
-    let config = Config {
-        dl: args.download_url(),
-        api: args.base_url().to_string(),
-    };
-    let settings = Settings {
-        crate_dir: args.crate_dir,
-        index_dir: args.index_dir,
-        git_binary: args.git_bin,
-    };
+    match args.cmd {
+        Command::Run(run_opt) => {
+            let config = Config {
+                dl: run_opt.download_url(),
+                api: run_opt.base_url().to_string(),
+            };
+            let settings = Settings {
+                crate_dir: run_opt.crate_dir,
+                index_dir: args.index_dir,
+                git_binary: args.git_bin,
+            };
+            return Ok(run_server(&run_opt.http_host, run_opt.http_port, config, settings).await?);
+        }
+        Command::BackfillDb => {
+            let settings = Settings {
+                // FIXME: we need a Settings to get a db conn, but Settings expects to know about more info than we want to know here.
+                crate_dir: Default::default(),
+                index_dir: args.index_dir,
+                git_binary: args.git_bin,
+            };
+            let package_index = PackageIndex::new(&settings.index_dir)?;
+
+            let mut conn = settings.get_db()?;
+            database::init(&conn)?;
+            database::backfill_db(&mut conn, &package_index)
+        }
+    }
+}
+
+async fn run_server(
+    host: &str,
+    port: u16,
+    config: Config,
+    settings: Settings,
+) -> crate::Result<()> {
+    let bind_addr = format!("{}:{}", host, port);
 
     std::fs::create_dir_all(&settings.index_dir)?;
     std::fs::create_dir_all(&settings.crate_dir)?;
@@ -59,6 +97,9 @@ async fn main() -> Result<(), EstuaryError> {
         &settings.index_dir,
         &config,
     )?));
+
+    let conn = settings.get_db()?;
+    database::init(&conn)?;
 
     Ok(HttpServer::new(move || {
         App::new()

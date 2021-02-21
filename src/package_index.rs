@@ -19,17 +19,19 @@
 //!
 //! Currently none of these restrictions are being performed. This may come in
 //! the future.
-use crate::errors::PackageIndexError;
+use crate::database::{NewCrate, NewCrateDependency};
+use crate::errors::EstuaryError;
 #[cfg(test)]
 use git2::Oid;
 use git2::{Repository, RepositoryInitOptions, Signature};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::BTreeMap;
+use std::convert::{TryFrom, TryInto};
+use std::fmt;
 use std::fs::OpenOptions;
 use std::io::{BufReader, Read, Write};
 use std::path::{Path, PathBuf};
-
-type Result<T> = std::result::Result<T, PackageIndexError>;
+use std::str::FromStr;
 
 /// The config data for the registry.
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
@@ -57,12 +59,30 @@ pub struct PackageVersion {
     /// Set of features defined for the package.
     ///
     /// Each feature maps to an array of features or dependencies it enables.
-    pub features: HashMap<String, Vec<String>>,
+    pub features: BTreeMap<String, Vec<String>>,
     /// Boolean of whether or not this version has been yanked.
     pub yanked: bool,
     /// The `links` string value from the package's manifest, or null if not
     /// specified. This field is optional and defaults to null.
     pub links: Option<String>,
+}
+
+impl PackageVersion {
+    pub fn from_new_crate(new_crate: &NewCrate, cksum: &str) -> crate::Result<Self> {
+        let mut deps = Vec::with_capacity(new_crate.deps.len());
+        for new_crate_dep in new_crate.deps.clone() {
+            deps.push(new_crate_dep.try_into()?);
+        }
+        Ok(PackageVersion {
+            name: new_crate.name.clone(),
+            vers: new_crate.vers.parse()?,
+            deps,
+            cksum: cksum.to_string(),
+            features: new_crate.features.clone(),
+            yanked: false,
+            links: new_crate.links.clone(),
+        })
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
@@ -113,6 +133,24 @@ pub struct Dependency {
     pub package: Option<String>,
 }
 
+impl TryFrom<NewCrateDependency> for Dependency {
+    type Error = EstuaryError;
+
+    fn try_from(new_crate_dep: NewCrateDependency) -> crate::Result<Self> {
+        Ok(Dependency {
+            name: new_crate_dep.name,
+            req: new_crate_dep.version_req,
+            features: new_crate_dep.features,
+            optional: new_crate_dep.optional,
+            default_features: new_crate_dep.default_features,
+            target: new_crate_dep.target,
+            kind: new_crate_dep.kind.parse()?,
+            registry: new_crate_dep.registry,
+            package: new_crate_dep.explicit_name_in_toml,
+        })
+    }
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub enum DependencyKind {
@@ -121,28 +159,54 @@ pub enum DependencyKind {
     Normal,
 }
 
+impl fmt::Display for DependencyKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            DependencyKind::Build => "build",
+            DependencyKind::Dev => "dev",
+            DependencyKind::Normal => "normal",
+        })
+    }
+}
+impl FromStr for DependencyKind {
+    type Err = EstuaryError;
+
+    fn from_str(s: &str) -> crate::Result<Self> {
+        match s {
+            "build" => Ok(DependencyKind::Build),
+            "dev" => Ok(DependencyKind::Dev),
+            "normal" => Ok(DependencyKind::Normal),
+            _ => Err(EstuaryError::DependencyKind(s.to_string())),
+        }
+    }
+}
+
 pub struct PackageIndex {
     repo: Repository,
 }
 
 impl PackageIndex {
-    /// Initialize a fresh (registry) index.
-    ///
-    /// Given an empty directory, this will create a new git repo containing a
+    /// Open an existing git repo or create a new one containing only a
     /// `config.json`.
-    ///
-    /// If the directory is non-empty *and has a git repo in it*, the assumption
-    /// is there's already a valid index at that path.
-    /// An attempt to update the config (if necessary) using the supplied values
-    /// will be made.
-    pub fn init<P>(path: P, config: &Config) -> Result<Self>
+    /// In the case where a pre-existing index repo is found, no additional
+    /// setup will be performed.
+    pub fn new<P>(path: P) -> crate::Result<Self>
     where
         P: AsRef<Path>,
     {
         let path = path.as_ref();
-        let pkg_index = Self {
+        Ok(Self {
             repo: get_or_create_repo(path)?,
-        };
+        })
+    }
+
+    /// Alternate constructor which will try to sync config data to the git repo
+    /// if the supplied info differs from what's already in there.
+    pub fn init<P>(path: P, config: &Config) -> crate::Result<Self>
+    where
+        P: AsRef<Path>,
+    {
+        let pkg_index = Self::new(path)?;
         let current_config: Option<Config> = pkg_index.read_config().ok();
 
         if Some(config) != current_config.as_ref() {
@@ -161,7 +225,7 @@ impl PackageIndex {
     /// ```text
     /// git add <path> && git commit -m <msg>
     /// ```
-    fn add_and_commit_file<P>(&self, path: P, msg: &str) -> Result<()>
+    fn add_and_commit_file<P>(&self, path: P, msg: &str) -> crate::Result<()>
     where
         P: AsRef<Path>,
     {
@@ -180,13 +244,13 @@ impl PackageIndex {
     }
 
     /// Read and parse the config file from the registry root directory.
-    fn read_config(&self) -> Result<Config> {
+    fn read_config(&self) -> crate::Result<Config> {
         let fh = std::fs::File::open(self.repo.workdir().unwrap().join("config.json"))?;
         Ok(serde_json::from_reader(fh)?)
     }
 
     /// Write the config to the registry root directory.
-    fn write_config(&self, config: &Config) -> Result<()> {
+    fn write_config(&self, config: &Config) -> crate::Result<()> {
         log::debug!("Writing registry config file.");
         let mut fh = OpenOptions::new()
             .create(true)
@@ -206,7 +270,7 @@ impl PackageIndex {
     ///
     /// If the version already exists in the package file, this function will
     /// return an `Err`.
-    pub fn publish(&self, pkg: &PackageVersion) -> Result<()> {
+    pub fn publish(&self, pkg: &PackageVersion) -> crate::Result<()> {
         let root = self.repo.workdir().unwrap();
         let dir = get_package_file_dir(&pkg.name)?;
         std::fs::create_dir_all(root.join(&dir))?;
@@ -225,7 +289,7 @@ impl PackageIndex {
             for line in contents.lines() {
                 let PackageVersion { vers, .. } = serde_json::from_str(line)?;
                 if vers == pkg.vers {
-                    return Err(PackageIndexError::Publish(format!(
+                    return Err(EstuaryError::Publish(format!(
                         "Failed to publish `{} v{}`. Crate already exists in index.",
                         pkg.name, pkg.vers
                     )));
@@ -250,7 +314,7 @@ impl PackageIndex {
     }
 
     /// Get the contents of a package file.
-    fn read_package_file(&self, name: &str) -> Result<String> {
+    fn read_package_file(&self, name: &str) -> crate::Result<String> {
         let root = self.repo.workdir().unwrap();
         let dir = get_package_file_dir(name)?;
         std::fs::create_dir_all(root.join(&dir))?;
@@ -268,7 +332,11 @@ impl PackageIndex {
     }
 
     /// Truncate and rewrite a package file.
-    fn rewrite_package_file(&self, name: &str, pkg_versions: &[PackageVersion]) -> Result<()> {
+    fn rewrite_package_file(
+        &self,
+        name: &str,
+        pkg_versions: &[PackageVersion],
+    ) -> crate::Result<()> {
         let root = self.repo.workdir().unwrap();
         let dir = get_package_file_dir(name)?;
         std::fs::create_dir_all(root.join(&dir))?;
@@ -288,7 +356,12 @@ impl PackageIndex {
     }
 
     /// Updates the `yanked` field of a given package version.
-    pub fn set_yanked(&self, name: &str, version: &semver::Version, yanked: bool) -> Result<()> {
+    pub fn set_yanked(
+        &self,
+        name: &str,
+        version: &semver::Version,
+        yanked: bool,
+    ) -> crate::Result<()> {
         // This is the most naive impl I can think of for this, but it should get
         // things rolling.
         // Read the whole package file, json parse all lines, modify the struct that
@@ -302,7 +375,7 @@ impl PackageIndex {
             .lines()
             .map(serde_json::from_str)
             .map(|r| r.map_err(Into::into))
-            .collect::<Result<Vec<PackageVersion>>>()?;
+            .collect::<crate::Result<Vec<PackageVersion>>>()?;
 
         for pkg in &mut pkg_versions {
             if &pkg.vers == version {
@@ -331,7 +404,7 @@ impl PackageIndex {
 
     // XXX: we might want this irl for debug pages or whatever.
     #[cfg(test)]
-    fn get_repo_log(&self) -> Result<Vec<(Oid, Option<String>)>> {
+    fn get_repo_log(&self) -> crate::Result<Vec<(Oid, Option<String>)>> {
         Ok(self
             .repo
             .reflog("HEAD")?
@@ -341,7 +414,7 @@ impl PackageIndex {
     }
 
     #[allow(dead_code)] // not currently used but not ready to give up on it.
-    pub fn get_publishes(&self, limit: Option<usize>) -> Result<Vec<(String, String)>> {
+    pub fn get_publishes(&self, limit: Option<usize>) -> crate::Result<Vec<(String, String)>> {
         let reflog = self.repo.reflog("HEAD")?;
         let it = reflog.iter().filter_map(|entry| {
             let msg = entry.message().unwrap_or("");
@@ -371,16 +444,16 @@ impl PackageIndex {
     ///
     /// Returns Ok(None) if the crate exists in the index, but the requested
     /// version was not found.
-    pub fn get_package_versions(&self, name: &str) -> Result<Vec<PackageVersion>> {
+    pub fn get_package_versions(&self, name: &str) -> crate::Result<Vec<PackageVersion>> {
         let contents = self.read_package_file(name)?;
         Ok(contents
             .lines()
-            .map(|s| serde_json::from_str(s).map_err(PackageIndexError::from))
-            .collect::<Result<Vec<PackageVersion>>>()?)
+            .map(|s| serde_json::from_str(s).map_err(EstuaryError::from))
+            .collect::<crate::Result<Vec<PackageVersion>>>()?)
     }
 
     /// Get a list of crates published to the index.
-    pub fn list_crates(&self) -> Result<Vec<String>> {
+    pub fn list_crates(&self) -> crate::Result<Vec<String>> {
         let root = self.repo.workdir().unwrap();
         let mut acc = vec![];
 
@@ -421,10 +494,10 @@ impl PackageIndex {
 ///   characters of the package name, and the next subdirectory is the third and
 ///   fourth characters of the package name. For example, `cargo` would be
 ///   stored in a file named `ca/rg/cargo`.
-fn get_package_file_dir(name: &str) -> Result<PathBuf> {
+fn get_package_file_dir(name: &str) -> crate::Result<PathBuf> {
     let name = name.trim().to_lowercase();
     match name.len() {
-        0 => Err(PackageIndexError::InvalidPackageName(name)),
+        0 => Err(EstuaryError::InvalidPackageName(name)),
         1 => Ok(PathBuf::from("1/")),
         2 => Ok(PathBuf::from("2/")),
         3 => {
@@ -443,24 +516,20 @@ fn get_package_file_dir(name: &str) -> Result<PathBuf> {
 }
 
 /// Get a git signature for "the system".
-fn get_sig() -> Result<Signature<'static>> {
+fn get_sig() -> crate::Result<Signature<'static>> {
     Ok(Signature::now("estuary", "admin@localhost")?)
 }
 
-fn get_or_create_repo<P>(root: P) -> Result<Repository>
+fn get_or_create_repo<P>(root: P) -> crate::Result<Repository>
 where
     P: AsRef<Path>,
 {
     let sig = get_sig()?;
     let root = root.as_ref();
 
-    let is_empty = match std::fs::read_dir(root) {
-        Ok(mut entries) => entries.next().is_none(),
-        _ => true,
-    };
-
-    if is_empty {
-        log::debug!("Creating a fresh index.");
+    Ok(Repository::open(root).or_else::<EstuaryError, _>(|e| {
+        log::warn!("Failed to find existing git repo: `{}`", e);
+        log::info!("Creating a fresh package index.");
         let repo =
             Repository::init_opts(root, RepositoryInitOptions::new().mkdir(true)).map_err(|e| {
                 log::error!("Failed to init git repo");
@@ -477,13 +546,7 @@ where
             git_update_server_info(&repo)?;
         }
         Ok(repo)
-    } else {
-        log::debug!("Using pre-existing index.");
-        Ok(Repository::open(root).map_err(|e| {
-            log::error!("Failed to open git repo");
-            e
-        })?)
-    }
+    })?)
 }
 
 /// The post-update hook is normally used to generate `info/refs` for
@@ -496,7 +559,7 @@ where
 /// Our "git server" is closer to a plain working tree (like a clone) so
 /// we'd never push to this. In order to expose our git repo to `cargo` we can
 /// basically run this command after each commit.
-fn git_update_server_info(repo: &Repository) -> Result<()> {
+fn git_update_server_info(repo: &Repository) -> crate::Result<()> {
     // FIXME: see if we can do this without shelling out.
     Ok(std::process::Command::new("git")
         .current_dir(repo.workdir().unwrap())
@@ -513,9 +576,10 @@ fn git_update_server_info(repo: &Repository) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use serde_json::json;
     use tempdir::TempDir;
+
+    use super::*;
 
     /// Parse the sample object from the cargo docs to verify our structs
     /// capture all the keys they're supposed to.
