@@ -2,7 +2,7 @@
 
 [![crates.io](https://img.shields.io/crates/v/estuary.svg)](https://crates.io/crates/estuary)
 [![crates.io](https://img.shields.io/crates/d/estuary.svg)](https://crates.io/crates/estuary)
-![CI](https://github.com/onelson/estuary/workflows/CI/badge.svg)
+[![CI](https://github.com/onelson/estuary/workflows/CI/badge.svg)](https://github.com/onelson/estuary/actions/workflows/ci.yaml)
 [![codecov](https://codecov.io/gh/onelson/estuary/branch/main/graph/badge.svg?token=2NJBNOIRL3)](https://codecov.io/gh/onelson/estuary)
 
 
