@@ -1,5 +1,6 @@
 use crate::package_index::{Dependency, PackageIndex, PackageVersion};
-use rusqlite::{named_params, params, Connection};
+use chrono::{DateTime, Utc};
+use rusqlite::{named_params, params, Connection, NO_PARAMS};
 use semver::Version;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -236,23 +237,45 @@ impl From<PackageVersion> for NewCrate {
 
 /// Get a list of crate names, with their latest version numbers.
 ///
-/// When `include_yanked` is false, yanked versions are excluded from
-/// consideration.
 /// If all versions of a given crate have been yanked, it will be omitted from
 /// this listing entirely.
-pub(crate) fn list_crates(include_yanked: bool) {
-    todo!()
+// TODO: support pagination
+// TODO: what about pre-release versions?
+pub(crate) fn list_crates(
+    conn: &mut Connection,
+) -> crate::Result<Vec<(String, String, DateTime<Utc>)>> {
+    let mut stmt = conn.prepare(
+        r#"
+        SELECT cv.vers, c.name, cv.created
+        FROM crate_versions as cv
+            JOIN crates c on cv.crate_id = c.id
+            WHERE cv.yanked = false
+            GROUP BY cv.crate_id
+            HAVING max(cv.vers)
+        "#,
+    )?;
+
+    let mut rows = stmt.query(NO_PARAMS)?;
+    let mut ret = vec![];
+    while let Some(row) = rows.next()? {
+        ret.push((row.get(0)?, row.get(1)?, row.get(2)?));
+    }
+    Ok(ret)
 }
 
-/// Get crate details by name and version.
+/// Get crate details (ie, the publish metadata) by name and version.
 ///
 /// When `version` isn't specified, the latest (unyanked) version will be
 /// returned.
-pub(crate) fn get_crate_version(name: &str, version: &Option<Version>) {
+pub(crate) fn get_crate_version_details(
+    conn: &mut Connection,
+    name: &str,
+    version: &Option<Version>,
+) {
     todo!()
 }
 
 /// List all versions for a given crate (including yanked).
-pub(crate) fn get_crate_versions(name: &str) {
+pub(crate) fn get_crate_versions_list(conn: &mut Connection, name: &str) {
     todo!()
 }
