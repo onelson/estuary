@@ -3,6 +3,7 @@ use crate::package_index::{Dependency, DependencyKind, PackageIndex, PackageVers
 use crate::{Result, Settings};
 use actix_web::{get, web, HttpRequest, HttpResponse};
 use askama::Template;
+use chrono::{DateTime, Utc};
 use serde::Deserialize;
 use std::sync::Mutex;
 
@@ -21,7 +22,7 @@ pub(crate) async fn styles(_req: HttpRequest) -> HttpResponse {
 #[template(path = "landing.html")]
 pub(crate) struct LandingTemplate<'a> {
     title: &'a str,
-    packages: Vec<String>,
+    packages: Vec<(String, String, DateTime<Utc>)>,
 }
 
 #[derive(Template)]
@@ -45,13 +46,11 @@ pub(crate) struct CrateDetailTemplate {
 pub(crate) async fn landing(settings: web::Data<Settings>) -> Result<LandingTemplate<'static>> {
     // FIXME: read from database
 
-    let index = index.lock().unwrap();
-    let mut names = index.list_crates()?;
-    names.sort();
-
+    let mut db = settings.get_db()?;
+    let packages = crate::database::list_crates(&mut db)?;
     Ok(LandingTemplate {
         title: "Crate List",
-        packages: names,
+        packages,
     })
 }
 

@@ -247,12 +247,13 @@ pub(crate) fn list_crates(
 ) -> crate::Result<Vec<(String, String, DateTime<Utc>)>> {
     let mut stmt = conn.prepare(
         r#"
-        SELECT cv.vers, c.name, cv.created
+        SELECT c.name, cv.vers, cv.created
         FROM crate_versions as cv
             JOIN crates c on cv.crate_id = c.id
             WHERE cv.yanked = false
             GROUP BY cv.crate_id
             HAVING max(cv.vers)
+            ORDER BY c.name
         "#,
     )?;
 
