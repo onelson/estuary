@@ -68,7 +68,7 @@ pub struct PackageVersion {
 }
 
 impl PackageVersion {
-    pub fn from_new_crate(new_crate: &NewCrate, cksum: &str) -> crate::Result<Self> {
+    pub(crate) fn from_new_crate(new_crate: &NewCrate, cksum: &str) -> crate::Result<Self> {
         let mut deps = Vec::with_capacity(new_crate.deps.len());
         for new_crate_dep in new_crate.deps.clone() {
             deps.push(new_crate_dep.try_into()?);

@@ -25,13 +25,13 @@ use std::sync::Mutex;
 pub type ApiResponse = Result<HttpResponse, ApiError>;
 
 #[derive(Deserialize)]
-pub struct Crate {
+pub(crate) struct Crate {
     crate_name: String,
     version: semver::Version,
 }
 
 #[put("/new")]
-pub async fn publish(
+pub(crate) async fn publish(
     mut payload: web::Bytes,
     package_index: web::Data<Mutex<PackageIndex>>,
     settings: web::Data<Settings>,
@@ -89,7 +89,7 @@ pub async fn publish(
 }
 
 #[delete("/{crate_name}/{version}/yank")]
-pub async fn yank(
+pub(crate) async fn yank(
     path: web::Path<Crate>,
     package_index: web::Data<Mutex<PackageIndex>>,
 ) -> ApiResponse {
@@ -100,7 +100,7 @@ pub async fn yank(
 }
 
 #[put("/{crate_name}/{version}/unyank")]
-pub async fn unyank(
+pub(crate) async fn unyank(
     path: web::Path<Crate>,
     package_index: web::Data<Mutex<PackageIndex>>,
 ) -> ApiResponse {
@@ -111,7 +111,7 @@ pub async fn unyank(
 }
 
 #[get("/{crate_name}/{version}/download")]
-pub async fn download(
+pub(crate) async fn download(
     path: web::Path<Crate>,
     settings: web::Data<Settings>,
 ) -> actix_web::Result<fs::NamedFile> {
@@ -129,7 +129,7 @@ pub async fn download(
 ///
 /// <https://doc.rust-lang.org/nightly/cargo/reference/registries.html#search>
 #[derive(Deserialize, Debug)]
-pub struct SearchQuery {
+pub(crate) struct SearchQuery {
     /// The search terms to match on.
     q: String,
     /// default=10, max=100.
@@ -140,14 +140,14 @@ pub struct SearchQuery {
 }
 
 #[derive(Serialize, Debug)]
-pub struct SearchResult {
+pub(crate) struct SearchResult {
     name: String,
     max_version: semver::Version,
     description: String,
 }
 
 #[get("")]
-pub async fn search(
+pub(crate) async fn search(
     query: web::Query<SearchQuery>,
     index: web::Data<Mutex<PackageIndex>>,
 ) -> ApiResponse {

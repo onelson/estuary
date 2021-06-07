@@ -6,14 +6,11 @@
 //! The endpoints here aim to support whatever is necessary for "git fetch" to
 //! work so cargo can do what it needs.
 
-use crate::errors::EstuaryError;
-use crate::Settings;
+use crate::{Result, Settings};
 use actix_web::{get, post, web, HttpResponse};
 use serde::Deserialize;
 use std::io::Write;
 use std::process::{Command, Stdio};
-
-type Result<T> = std::result::Result<T, EstuaryError>;
 
 /// Prefixes the string with 4 bytes representing the hex length of the string.
 ///
@@ -28,7 +25,7 @@ fn pkt_line(s: &str) -> String {
 
 /// Git "services" offered by our transport.
 #[derive(Deserialize)]
-pub enum Service {
+pub(crate) enum Service {
     #[serde(rename = "git-upload-pack")]
     UploadPack,
 }
@@ -42,12 +39,12 @@ impl Service {
 }
 
 #[derive(Deserialize)]
-pub struct Query {
+pub(crate) struct Query {
     service: Service,
 }
 
 #[get("/info/refs")]
-pub async fn get_info_refs(
+pub(crate) async fn get_info_refs(
     settings: web::Data<Settings>,
     query: web::Query<Query>,
 ) -> Result<HttpResponse> {
@@ -85,7 +82,7 @@ pub async fn get_info_refs(
 }
 
 #[post("/git-upload-pack")]
-pub async fn upload_pack(
+pub(crate) async fn upload_pack(
     settings: web::Data<Settings>,
     payload: web::Bytes,
 ) -> Result<HttpResponse> {

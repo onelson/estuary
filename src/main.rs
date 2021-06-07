@@ -12,11 +12,11 @@ mod handlers;
 mod package_index;
 mod storage;
 
-type Result<T> = std::result::Result<T, EstuaryError>;
+pub(crate) type Result<T> = std::result::Result<T, EstuaryError>;
 
 /// Common configuration details to share with handlers.
 #[derive(Clone, Debug)]
-pub struct Settings {
+pub(crate) struct Settings {
     /// Root path for storing `.crate` files when they are published.
     pub crate_dir: PathBuf,
     /// Location for the git repo that tracks changes to the package index.

@@ -235,7 +235,8 @@ impl From<PackageVersion> for NewCrate {
     }
 }
 
-/// Get a list of crate names, with their latest version numbers.
+/// Get a list of crate names, with their latest version numbers and publish
+/// timestamps.
 ///
 /// If all versions of a given crate have been yanked, it will be omitted from
 /// this listing entirely.
