@@ -44,6 +44,8 @@ pub struct CrateDetailTemplate {
 
 #[get("/")]
 pub async fn landing(index: web::Data<Mutex<PackageIndex>>) -> Result<LandingTemplate<'static>> {
+    // FIXME: read from database
+
     let index = index.lock().unwrap();
     let mut names = index.list_crates()?;
     names.sort();
@@ -78,6 +80,8 @@ pub async fn version_list(
     path: web::Path<CrateVersionListPath>,
     index: web::Data<Mutex<PackageIndex>>,
 ) -> Result<CrateVersionListTemplate> {
+    // FIXME: read from database
+
     let index = index.lock().unwrap();
     let releases = index
         .get_package_versions(&path.crate_name)
@@ -107,6 +111,8 @@ pub async fn crate_detail(
     path: web::Path<CrateDetailPath>,
     index: web::Data<Mutex<PackageIndex>>,
 ) -> Result<CrateDetailTemplate> {
+    // FIXME: read from database
+
     // 404 if:
     // - the crate isn't in the index
     // - the crate version doesn't exist

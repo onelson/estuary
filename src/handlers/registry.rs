@@ -93,6 +93,7 @@ pub async fn yank(
     path: web::Path<Crate>,
     package_index: web::Data<Mutex<PackageIndex>>,
 ) -> ApiResponse {
+    // FIXME: update database and index (both)
     let package_index = package_index.lock().unwrap();
     package_index.set_yanked(&path.crate_name, &path.version, true)?;
     Ok(HttpResponse::Ok().json(json!({ "ok": true })))
@@ -103,6 +104,7 @@ pub async fn unyank(
     path: web::Path<Crate>,
     package_index: web::Data<Mutex<PackageIndex>>,
 ) -> ApiResponse {
+    // FIXME: update database and index (both)
     let index = package_index.lock().unwrap();
     index.set_yanked(&path.crate_name, &path.version, false)?;
     Ok(HttpResponse::Ok().json(json!({ "ok": true })))
@@ -149,6 +151,8 @@ pub async fn search(
     query: web::Query<SearchQuery>,
     index: web::Data<Mutex<PackageIndex>>,
 ) -> ApiResponse {
+    // FIXME: look at database instead of index on disk
+
     let index = index.lock().unwrap();
     let names = index.list_crates()?;
     let terms: Vec<&str> = query.q.split(&['-', '_', ' ', '\t'][..]).collect();

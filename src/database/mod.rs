@@ -1,10 +1,11 @@
 use crate::package_index::{Dependency, PackageIndex, PackageVersion};
 use rusqlite::{named_params, params, Connection};
+use semver::Version;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
 /// Prepare the database schema.
-pub fn init(conn: &Connection) -> crate::Result<()> {
+pub(crate) fn init(conn: &Connection) -> crate::Result<()> {
     conn.execute_batch(
         r#"
         BEGIN;
@@ -66,7 +67,7 @@ pub fn backfill_db(conn: &mut Connection, index: &PackageIndex) -> crate::Result
     Ok(())
 }
 
-pub fn publish(conn: &mut Connection, new_crate: &NewCrate) -> crate::Result<()> {
+pub(crate) fn publish(conn: &mut Connection, new_crate: &NewCrate) -> crate::Result<()> {
     let tx = conn.transaction()?;
     let crate_id = if let Ok(1) = tx.execute(
         "INSERT INTO crates (name) VALUES (?)",
@@ -114,7 +115,7 @@ pub fn publish(conn: &mut Connection, new_crate: &NewCrate) -> crate::Result<()>
     Ok(())
 }
 
-pub fn _set_yanked(
+pub(crate) fn set_yanked(
     conn: &mut Connection,
     crate_name: &str,
     version: &semver::Version,
@@ -155,7 +156,7 @@ pub fn _set_yanked(
 /// This type is "borrowed" from `cargo`'s `crates-io` crate.
 /// <https://github.com/rust-lang/cargo/blob/master/crates/crates-io/lib.rs>
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct NewCrate {
+pub(crate) struct NewCrate {
     pub name: String,
     pub vers: String,
     pub deps: Vec<NewCrateDependency>,
@@ -178,7 +179,7 @@ pub struct NewCrate {
 /// This type is "borrowed" from `cargo`'s `crates-io` crate.
 /// <https://github.com/rust-lang/cargo/blob/master/crates/crates-io/lib.rs>
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct NewCrateDependency {
+pub(crate) struct NewCrateDependency {
     pub optional: bool,
     pub default_features: bool,
     pub name: String,
@@ -231,4 +232,27 @@ impl From<PackageVersion> for NewCrate {
             links: None,
         }
     }
+}
+
+/// Get a list of crate names, with their latest version numbers.
+///
+/// When `include_yanked` is false, yanked versions are excluded from
+/// consideration.
+/// If all versions of a given crate have been yanked, it will be omitted from
+/// this listing entirely.
+pub(crate) fn list_crates(include_yanked: bool) {
+    todo!()
+}
+
+/// Get crate details by name and version.
+///
+/// When `version` isn't specified, the latest (unyanked) version will be
+/// returned.
+pub(crate) fn get_crate_version(name: &str, version: &Option<Version>) {
+    todo!()
+}
+
+/// List all versions for a given crate (including yanked).
+pub(crate) fn get_crate_versions(name: &str) {
+    todo!()
 }
