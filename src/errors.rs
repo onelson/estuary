@@ -1,5 +1,4 @@
 #![cfg(not(tarpaulin_include))]
-
 use actix_web::dev::HttpResponseBuilder;
 use actix_web::error::{BlockingError, ResponseError};
 use actix_web::http::StatusCode;
@@ -10,12 +9,8 @@ use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum ApiError {
-    #[error("IO error: `{0}`")]
-    IO(#[from] std::io::Error),
-    #[error("JSON parse failed: `{0}`")]
-    JSON(#[from] serde_json::Error),
-    #[error("Package Index failure: `{0}`")]
-    PackageIndex(#[from] PackageIndexError),
+    #[error(transparent)]
+    Estuary(#[from] EstuaryError),
 }
 
 /// For the Api Errors, cargo wants them converted to a 200 OK response with a
@@ -33,13 +28,9 @@ impl ResponseError for ApiError {
 }
 
 #[derive(Debug, Error)]
-pub enum PackageIndexError {
-    #[error("IO error: `{0}`")]
-    IO(#[from] std::io::Error),
+pub enum EstuaryError {
     #[error("Git error: `{0}`")]
     Git2(#[from] git2::Error),
-    #[error("JSON parse failed: `{0}`")]
-    JSON(#[from] serde_json::Error),
     #[error("Publish failed: `{0}`")]
     Publish(String),
     #[error("Invalid package name: `{0}`")]
@@ -48,22 +39,20 @@ pub enum PackageIndexError {
     Glob(#[from] glob::GlobError),
     #[error("Glob pattern failed: `{0}`")]
     GlobPattern(#[from] glob::PatternError),
-}
-
-#[derive(Debug, Error)]
-pub enum EstuaryError {
+    #[error("Invalid dependency kind: `{0}`")]
+    DependencyKind(String),
     #[error("JSON parse failed: `{0}`")]
     JSON(#[from] serde_json::Error),
     #[error("IO error: `{0}`")]
     IO(#[from] std::io::Error),
-    #[error("Package Index failure: `{0}`")]
-    PackageIndex(#[from] PackageIndexError),
     #[error("Blocking task canceled")]
     BlockingTaskCanceled,
     #[error("Not Found")]
     NotFound,
     #[error("Invalid Version: `{0}`")]
     InvalidVersion(#[from] semver::SemVerError),
+    #[error("DB error: `{0}`")]
+    DbError(#[from] rusqlite::Error),
 }
 
 impl<T> From<BlockingError<T>> for EstuaryError

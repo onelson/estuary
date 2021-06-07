@@ -1,15 +1,15 @@
-use crate::errors::{EstuaryError, PackageIndexError};
+use crate::errors::EstuaryError;
 use crate::package_index::{Dependency, DependencyKind, PackageIndex, PackageVersion};
+use crate::{Result, Settings};
 use actix_web::{get, web, HttpRequest, HttpResponse};
 use askama::Template;
+use chrono::{DateTime, Utc};
 use serde::Deserialize;
 use std::sync::Mutex;
 
-type Result<T> = std::result::Result<T, EstuaryError>;
-
 #[cfg(not(tarpaulin_include))]
 #[get("/styles/main.dist.css")]
-pub async fn styles(_req: HttpRequest) -> HttpResponse {
+pub(crate) async fn styles(_req: HttpRequest) -> HttpResponse {
     HttpResponse::Ok()
         .content_type("text/css")
         .body(include_str!(concat!(
@@ -20,21 +20,21 @@ pub async fn styles(_req: HttpRequest) -> HttpResponse {
 
 #[derive(Template)]
 #[template(path = "landing.html")]
-pub struct LandingTemplate<'a> {
+pub(crate) struct LandingTemplate<'a> {
     title: &'a str,
-    packages: Vec<String>,
+    packages: Vec<(String, String, DateTime<Utc>)>,
 }
 
 #[derive(Template)]
 #[template(path = "login.html")]
-pub struct LoginTemplate<'a> {
+pub(crate) struct LoginTemplate<'a> {
     title: &'a str,
     token: &'a str,
 }
 
 #[derive(Template)]
 #[template(path = "crate_detail.html")]
-pub struct CrateDetailTemplate {
+pub(crate) struct CrateDetailTemplate {
     title: String,
     pkg: PackageVersion,
     dev_deps: Vec<Dependency>,
@@ -43,19 +43,19 @@ pub struct CrateDetailTemplate {
 }
 
 #[get("/")]
-pub async fn landing(index: web::Data<Mutex<PackageIndex>>) -> Result<LandingTemplate<'static>> {
-    let index = index.lock().unwrap();
-    let mut names = index.list_crates()?;
-    names.sort();
+pub(crate) async fn landing(settings: web::Data<Settings>) -> Result<LandingTemplate<'static>> {
+    // FIXME: read from database
 
+    let mut db = settings.get_db()?;
+    let packages = crate::database::list_crates(&mut db)?;
     Ok(LandingTemplate {
         title: "Crate List",
-        packages: names,
+        packages,
     })
 }
 
 #[get("/me")]
-pub async fn login(_req: HttpRequest) -> LoginTemplate<'static> {
+pub(crate) async fn login(_req: HttpRequest) -> LoginTemplate<'static> {
     LoginTemplate {
         title: "Login",
         token: "0000", // TODO: implement proper auth
@@ -64,30 +64,32 @@ pub async fn login(_req: HttpRequest) -> LoginTemplate<'static> {
 
 #[derive(Template)]
 #[template(path = "crate_version_list.html")]
-pub struct CrateVersionListTemplate {
+pub(crate) struct CrateVersionListTemplate {
     crate_name: String,
     releases: Vec<PackageVersion>,
 }
 
 #[derive(Deserialize, Debug)]
-pub struct CrateVersionListPath {
+pub(crate) struct CrateVersionListPath {
     crate_name: String,
 }
 
-pub async fn version_list(
+pub(crate) async fn version_list(
     path: web::Path<CrateVersionListPath>,
     index: web::Data<Mutex<PackageIndex>>,
 ) -> Result<CrateVersionListTemplate> {
+    // FIXME: read from database
+
     let index = index.lock().unwrap();
     let releases = index
         .get_package_versions(&path.crate_name)
         .map_err(|e| match e {
-            PackageIndexError::IO(e @ std::io::Error { .. })
+            EstuaryError::IO(e @ std::io::Error { .. })
                 if e.kind() == std::io::ErrorKind::NotFound =>
             {
                 EstuaryError::NotFound
             }
-            _ => e.into(),
+            _ => e,
         })?;
 
     Ok(CrateVersionListTemplate {
@@ -97,16 +99,18 @@ pub async fn version_list(
 }
 
 #[derive(Deserialize, Debug)]
-pub struct CrateDetailPath {
+pub(crate) struct CrateDetailPath {
     crate_name: String,
     /// When version is None, we'll serve the highest available version.
     version: Option<semver::Version>,
 }
 
-pub async fn crate_detail(
+pub(crate) async fn crate_detail(
     path: web::Path<CrateDetailPath>,
     index: web::Data<Mutex<PackageIndex>>,
 ) -> Result<CrateDetailTemplate> {
+    // FIXME: read from database
+
     // 404 if:
     // - the crate isn't in the index
     // - the crate version doesn't exist
@@ -117,12 +121,12 @@ pub async fn crate_detail(
     let all_releases = index
         .get_package_versions(&path.crate_name)
         .map_err(|e| match e {
-            PackageIndexError::IO(e @ std::io::Error { .. })
+            EstuaryError::IO(e @ std::io::Error { .. })
                 if e.kind() == std::io::ErrorKind::NotFound =>
             {
                 EstuaryError::NotFound
             }
-            _ => e.into(),
+            _ => e,
         })?;
 
     let pkg = match &path.version {

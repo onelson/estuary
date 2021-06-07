@@ -6,21 +6,13 @@
 //! For now, the endpoints related to "owners" are on the back burner.
 //! For the small-scale use case estuary targets, we may not need them at all.
 //!
-//! The search endpoint is still pending, but it's on the more near term list.
+//! Still TODO:
+//! - Owners List `GET /api/v1/crates/{crate_name}/owners`.
+//! - Owners Add `PUT /api/v1/crates/{crate_name}/owners`.
+//! - Owners Remove `DELETE /api/v1/crates/{crate_name}/owners`.
 //!
-//! - [x] Publish `PUT /api/v1/crates/new`.
-//! - [x] Download `GET /api/v1/crates/{crate_name}/{version}/download`.
-//! - [x] Yank `DELETE /api/v1/crates/{crate_name}/{version}/yank`.
-//! - [x] Unyank `PUT /api/v1/crates/{crate_name}/{version}/unyank`.
-//! - [ ] Owners List `GET /api/v1/crates/{crate_name}/owners`.
-//! - [ ] Owners Add `PUT /api/v1/crates/{crate_name}/owners`.
-//! - [ ] Owners Remove `DELETE /api/v1/crates/{crate_name}/owners`.
-//! - [ ] Search `GET /api/v1/crates` query params: `q` (search terms), `per_page`
-//!   (result limit - default 10, max 100).
-//! - [x] Login `/me` (this one lives in the frontend module).
-
-use crate::errors::ApiError;
-use crate::package_index::{Dependency, PackageIndex, PackageVersion};
+use crate::errors::{ApiError, EstuaryError};
+use crate::package_index::{PackageIndex, PackageVersion};
 use crate::Settings;
 use actix_files as fs;
 use actix_web::{delete, get, put, web, HttpResponse};
@@ -28,60 +20,52 @@ use byteorder::{LittleEndian, ReadBytesExt};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sha2::{Digest, Sha256};
-use std::collections::HashMap;
 use std::sync::Mutex;
 
 pub type ApiResponse = Result<HttpResponse, ApiError>;
 
 #[derive(Deserialize)]
-pub struct Crate {
+pub(crate) struct Crate {
     crate_name: String,
     version: semver::Version,
 }
 
-/// Data supplied by `cargo` during the publishing of a crate.
-///
-/// The actual json payload has extra fields (which we're currently dropping)
-/// but in the future we might want to record the data instead.
-#[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct PartialPackageVersion {
-    name: String,
-    vers: semver::Version,
-    deps: Vec<Dependency>,
-    features: HashMap<String, Vec<String>>,
-    links: Option<String>,
-}
-
 #[put("/new")]
-pub async fn publish(
+pub(crate) async fn publish(
     mut payload: web::Bytes,
     package_index: web::Data<Mutex<PackageIndex>>,
     settings: web::Data<Settings>,
 ) -> ApiResponse {
     log::trace!("total len: {}", payload.len());
 
-    let metadata_len = { payload.split_to(4).as_ref().read_u32::<LittleEndian>()? } as usize;
+    let metadata_len = {
+        payload
+            .split_to(4)
+            .as_ref()
+            .read_u32::<LittleEndian>()
+            .map_err(EstuaryError::from)?
+    } as usize;
     log::trace!("metadata len: {}", metadata_len);
 
-    let metadata: PartialPackageVersion =
-        serde_json::from_slice(payload.split_to(metadata_len).as_ref())?;
+    let new_crate_metadata: crate::database::NewCrate =
+        serde_json::from_slice(payload.split_to(metadata_len).as_ref())
+            .map_err(EstuaryError::from)?;
 
-    let crate_file_len = { payload.split_to(4).as_ref().read_u32::<LittleEndian>()? } as usize;
+    let crate_file_len = {
+        payload
+            .split_to(4)
+            .as_ref()
+            .read_u32::<LittleEndian>()
+            .map_err(EstuaryError::from)?
+    } as usize;
     log::trace!("crate file len: {}", crate_file_len);
 
     let crate_file_bytes = payload.split_to(crate_file_len);
     let cksum = format!("{:x}", Sha256::digest(crate_file_bytes.as_ref()));
+    let pkg_version = PackageVersion::from_new_crate(&new_crate_metadata, &cksum)?;
 
-    let pkg_version = PackageVersion {
-        name: metadata.name,
-        vers: metadata.vers,
-        deps: metadata.deps,
-        cksum,
-        features: metadata.features,
-        yanked: false,
-        links: metadata.links,
-    };
-
+    let mut conn = settings.get_db()?;
+    crate::database::publish(&mut conn, &new_crate_metadata)?;
     let package_index = package_index.lock().unwrap();
     package_index.publish(&pkg_version)?;
 
@@ -105,27 +89,29 @@ pub async fn publish(
 }
 
 #[delete("/{crate_name}/{version}/yank")]
-pub async fn yank(
+pub(crate) async fn yank(
     path: web::Path<Crate>,
     package_index: web::Data<Mutex<PackageIndex>>,
 ) -> ApiResponse {
+    // FIXME: update database and index (both)
     let package_index = package_index.lock().unwrap();
     package_index.set_yanked(&path.crate_name, &path.version, true)?;
     Ok(HttpResponse::Ok().json(json!({ "ok": true })))
 }
 
 #[put("/{crate_name}/{version}/unyank")]
-pub async fn unyank(
+pub(crate) async fn unyank(
     path: web::Path<Crate>,
     package_index: web::Data<Mutex<PackageIndex>>,
 ) -> ApiResponse {
+    // FIXME: update database and index (both)
     let index = package_index.lock().unwrap();
     index.set_yanked(&path.crate_name, &path.version, false)?;
     Ok(HttpResponse::Ok().json(json!({ "ok": true })))
 }
 
 #[get("/{crate_name}/{version}/download")]
-pub async fn download(
+pub(crate) async fn download(
     path: web::Path<Crate>,
     settings: web::Data<Settings>,
 ) -> actix_web::Result<fs::NamedFile> {
@@ -143,7 +129,7 @@ pub async fn download(
 ///
 /// <https://doc.rust-lang.org/nightly/cargo/reference/registries.html#search>
 #[derive(Deserialize, Debug)]
-pub struct SearchQuery {
+pub(crate) struct SearchQuery {
     /// The search terms to match on.
     q: String,
     /// default=10, max=100.
@@ -154,17 +140,19 @@ pub struct SearchQuery {
 }
 
 #[derive(Serialize, Debug)]
-pub struct SearchResult {
+pub(crate) struct SearchResult {
     name: String,
     max_version: semver::Version,
     description: String,
 }
 
 #[get("")]
-pub async fn search(
+pub(crate) async fn search(
     query: web::Query<SearchQuery>,
     index: web::Data<Mutex<PackageIndex>>,
 ) -> ApiResponse {
+    // FIXME: look at database instead of index on disk
+
     let index = index.lock().unwrap();
     let names = index.list_crates()?;
     let terms: Vec<&str> = query.q.split(&['-', '_', ' ', '\t'][..]).collect();

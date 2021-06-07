@@ -13,21 +13,19 @@ pub fn parse_args() -> Opt {
 }
 
 #[derive(StructOpt)]
-pub struct Opt {
+pub enum Command {
+    Run(RunOpt),
+    BackfillDb,
+}
+
+#[derive(StructOpt)]
+pub struct RunOpt {
     #[structopt(
         long,
         env = "ESTUARY_BASE_URL",
         help = "The public url for the service."
     )]
     base_url: String,
-
-    #[structopt(
-        long,
-        parse(from_os_str),
-        env = "ESTUARY_INDEX_DIR",
-        help = "A directory to store the package index git repo."
-    )]
-    pub index_dir: PathBuf,
 
     #[structopt(
         long,
@@ -50,7 +48,17 @@ pub struct Opt {
 
     #[structopt(long, default_value = "7878", env = "ESTUARY_HTTP_PORT")]
     pub http_port: u16,
+}
 
+#[derive(StructOpt)]
+pub struct Opt {
+    #[structopt(
+        long,
+        parse(from_os_str),
+        env = "ESTUARY_INDEX_DIR",
+        help = "A directory to store the package index data."
+    )]
+    pub index_dir: PathBuf,
     #[structopt(
         long,
         parse(from_os_str),
@@ -59,9 +67,11 @@ pub struct Opt {
         help = "Path to `git`."
     )]
     pub git_bin: PathBuf,
+    #[structopt(subcommand)]
+    pub cmd: Command,
 }
 
-impl Opt {
+impl RunOpt {
     /// Public getter for the `base_url` field.
     ///
     /// Mainly this just ensures there are no trailing slashes in there.
@@ -89,15 +99,13 @@ mod tests {
 
     #[test]
     fn test_base_url_trims_trailing_slashes() {
-        let opt = Opt {
+        let opt = RunOpt {
             // weird
             base_url: "http://example.com/////".to_string(),
-            index_dir: Default::default(),
             crate_dir: Default::default(),
             download_url: None,
             http_host: "".to_string(),
             http_port: 0,
-            git_bin: Default::default(),
         };
 
         assert_eq!("http://example.com", opt.base_url());
@@ -105,14 +113,12 @@ mod tests {
 
     #[test]
     fn test_download_url_default() {
-        let opt = Opt {
+        let opt = RunOpt {
             base_url: "http://example.com".to_string(),
-            index_dir: Default::default(),
             crate_dir: Default::default(),
             download_url: None,
             http_host: "".to_string(),
             http_port: 0,
-            git_bin: Default::default(),
         };
 
         assert_eq!(

@@ -29,5 +29,9 @@ pub fn get_test_settings(data_dir: &Path) -> web::Data<Settings> {
         index_dir: data_dir.join("index").to_path_buf(),
         git_binary: PathBuf::from("git"),
     };
+    std::fs::create_dir_all(&settings.index_dir).unwrap();
+    std::fs::create_dir_all(&settings.crate_dir).unwrap();
+    let conn = settings.get_db().unwrap();
+    crate::database::init(&conn).unwrap();
     web::Data::new(settings)
 }

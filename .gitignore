@@ -2,3 +2,4 @@
 .env
 _data
 node_modules/
+/.ignore
