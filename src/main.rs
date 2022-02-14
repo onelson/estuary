@@ -24,6 +24,9 @@ pub struct Settings {
     ///
     /// Defaults to just "git", expecting it to be in your `PATH`.
     pub git_binary: PathBuf,
+
+    /// The key that must be presented in order to publish a crate.
+    pub publish_key: Option<String>,
 }
 
 #[cfg(not(tarpaulin_include))]
@@ -45,6 +48,7 @@ async fn main() -> Result<(), EstuaryError> {
         crate_dir: args.crate_dir,
         index_dir: args.index_dir,
         git_binary: args.git_bin,
+        publish_key: args.publish_key,
     };
 
     std::fs::create_dir_all(&settings.index_dir)?;
