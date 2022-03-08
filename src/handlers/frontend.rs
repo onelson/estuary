@@ -4,6 +4,7 @@ use actix_web::{get, web, HttpRequest, HttpResponse};
 use askama::Template;
 use serde::Deserialize;
 use std::sync::Mutex;
+use log::info;
 
 type Result<T> = std::result::Result<T, EstuaryError>;
 
@@ -55,11 +56,13 @@ pub async fn landing(index: web::Data<Mutex<PackageIndex>>) -> Result<LandingTem
 }
 
 #[get("/me")]
-pub async fn login(_req: HttpRequest) -> LoginTemplate<'static> {
-    LoginTemplate {
+pub async fn login(req: HttpRequest) -> Result<LoginTemplate<'static>> {
+    info!("{:?}", req);
+
+    Ok(LoginTemplate {
         title: "Login",
         token: "0000", // TODO: implement proper auth
-    }
+    })
 }
 
 #[derive(Template)]

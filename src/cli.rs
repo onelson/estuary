@@ -59,6 +59,9 @@ pub struct Opt {
         help = "Path to `git`."
     )]
     pub git_bin: PathBuf,
+
+    #[structopt(long, env = "ESTUARY_PUBLISH_KEY")]
+    pub publish_key: Option<String>
 }
 
 impl Opt {
@@ -98,6 +101,7 @@ mod tests {
             http_host: "".to_string(),
             http_port: 0,
             git_bin: Default::default(),
+            publish_key: Default::default()
         };
 
         assert_eq!("http://example.com", opt.base_url());
@@ -113,6 +117,7 @@ mod tests {
             http_host: "".to_string(),
             http_port: 0,
             git_bin: Default::default(),
+            publish_key: Default::default()
         };
 
         assert_eq!(

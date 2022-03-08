@@ -23,7 +23,7 @@ use crate::errors::ApiError;
 use crate::package_index::{Dependency, PackageIndex, PackageVersion};
 use crate::Settings;
 use actix_files as fs;
-use actix_web::{delete, get, put, web, HttpResponse};
+use actix_web::{delete, get, put, web, HttpResponse, http::{StatusCode, header}};
 use byteorder::{LittleEndian, ReadBytesExt};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -52,12 +52,68 @@ pub struct PartialPackageVersion {
     links: Option<String>,
 }
 
+/**
+ * Compare two objects for equality without revealing information about the objects (other than size) through timing sidechannels.
+ */
+trait SecureEq {
+    /**
+     * Compare 2 objects for equality.
+     */
+    fn secure_eq(&self, other: &Self) -> bool;
+}
+
+impl SecureEq for &str {
+    fn secure_eq(&self, other: &Self) -> bool {
+        // Revealing length is okay.
+        if self.len() != other.len() {
+            return false;
+        }
+
+        self
+            .bytes()
+            .zip(other.bytes())
+            .fold(true, |x, (a, b)| { x && a == b })
+    }
+}
+
+fn is_authorized(request: &web::HttpRequest, settings: &Settings) -> Result<(),StatusCode> {
+    let publish_key = request.headers().get(header::AUTHORIZATION);
+
+    if let Some(ref key) = settings.publish_key {
+        match publish_key {
+            Some(k) => {
+                let k = match k.to_str() {
+                    Ok(v) => v,
+                    Err(_) => {
+                        return Err(StatusCode::BAD_REQUEST);
+                    }
+                };
+
+                if !key.as_str().secure_eq(&k) {
+                    return Err(StatusCode::FORBIDDEN);
+                }
+            },
+            None => {
+                return Err(StatusCode::UNAUTHORIZED);
+            }
+        }
+    }
+
+    Ok(())
+}
+
 #[put("/new")]
 pub async fn publish(
     mut payload: web::Bytes,
+    request: web::HttpRequest,
     package_index: web::Data<Mutex<PackageIndex>>,
     settings: web::Data<Settings>,
 ) -> ApiResponse {
+    match is_authorized(&request, &settings) {
+        Ok(_) => {},
+        Err(s) => { return Ok(HttpResponse::new(s)) }
+    }
+
     log::trace!("total len: {}", payload.len());
 
     let metadata_len = { payload.split_to(4).as_ref().read_u32::<LittleEndian>()? } as usize;
@@ -107,8 +163,15 @@ pub async fn publish(
 #[delete("/{crate_name}/{version}/yank")]
 pub async fn yank(
     path: web::Path<Crate>,
+    request: web::HttpRequest,
     package_index: web::Data<Mutex<PackageIndex>>,
+    settings: web::Data<Settings>,
 ) -> ApiResponse {
+    match is_authorized(&request, &settings) {
+        Ok(_) => {},
+        Err(s) => { return Ok(HttpResponse::new(s)) }
+    }
+
     let package_index = package_index.lock().unwrap();
     package_index.set_yanked(&path.crate_name, &path.version, true)?;
     Ok(HttpResponse::Ok().json(json!({ "ok": true })))
@@ -117,8 +180,15 @@ pub async fn yank(
 #[put("/{crate_name}/{version}/unyank")]
 pub async fn unyank(
     path: web::Path<Crate>,
+    request: web::HttpRequest,
     package_index: web::Data<Mutex<PackageIndex>>,
+    settings: web::Data<Settings>,
 ) -> ApiResponse {
+    match is_authorized(&request, &settings) {
+        Ok(_) => {},
+        Err(s) => { return Ok(HttpResponse::new(s)) }
+    }
+
     let index = package_index.lock().unwrap();
     index.set_yanked(&path.crate_name, &path.version, false)?;
     Ok(HttpResponse::Ok().json(json!({ "ok": true })))
