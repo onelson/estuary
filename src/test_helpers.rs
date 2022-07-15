@@ -28,7 +28,7 @@ pub fn get_test_settings(data_dir: &Path) -> web::Data<Settings> {
         crate_dir: data_dir.join("crates").to_path_buf(),
         index_dir: data_dir.join("index").to_path_buf(),
         git_binary: PathBuf::from("git"),
-        publish_key: None,
+        publish_key: "00000000-0000-0000-0000-000000000000".to_string(),
     };
     web::Data::new(settings)
 }

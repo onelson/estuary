@@ -1,5 +1,6 @@
 use crate::errors::{EstuaryError, PackageIndexError};
 use crate::package_index::{Dependency, DependencyKind, PackageIndex, PackageVersion};
+use crate::Settings;
 use actix_web::{get, web, HttpRequest, HttpResponse};
 use askama::Template;
 use serde::Deserialize;
@@ -30,7 +31,7 @@ pub struct LandingTemplate<'a> {
 #[template(path = "login.html")]
 pub struct LoginTemplate<'a> {
     title: &'a str,
-    token: &'a str,
+    token: String,
 }
 
 #[derive(Template)]
@@ -56,12 +57,13 @@ pub async fn landing(index: web::Data<Mutex<PackageIndex>>) -> Result<LandingTem
 }
 
 #[get("/me")]
-pub async fn login(req: HttpRequest) -> Result<LoginTemplate<'static>> {
+pub async fn login(settings: web::Data<Settings>, req: HttpRequest) -> Result<LoginTemplate<'static>> {
     info!("{:?}", req);
 
+    // TODO: implement proper auth (now it's just a fixed oken)
     Ok(LoginTemplate {
-        title: "Login",
-        token: "0000", // TODO: implement proper auth
+        title: "API Key",
+        token: settings.publish_key.clone(), 
     })
 }
 
@@ -215,6 +217,7 @@ mod tests {
         let req = test::TestRequest::put()
             .uri("/api/v1/crates/new")
             .set_payload(MY_CRATE_0_1_0)
+            .header("authorization", "00000000-0000-0000-0000-000000000000")
             .to_request();
 
         let _: serde_json::Value = test::read_response_json(&mut app, req).await;
@@ -288,6 +291,7 @@ mod tests {
         let req = test::TestRequest::put()
             .uri("/api/v1/crates/new")
             .set_payload(MY_CRATE_0_1_0)
+            .header("authorization", "00000000-0000-0000-0000-000000000000")
             .to_request();
 
         let _: serde_json::Value = test::read_response_json(&mut app, req).await;

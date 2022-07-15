@@ -60,8 +60,13 @@ pub struct Opt {
     )]
     pub git_bin: PathBuf,
 
-    #[structopt(long, env = "ESTUARY_PUBLISH_KEY")]
-    pub publish_key: Option<String>
+    #[structopt(
+        long = "PUBLISH-KEY",
+        env = "ESTUARY_PUBLISH_KEY",
+        default_value = "00000000-0000-0000-0000-000000000000",
+        help = "The key to use when publishing crates."
+    )]
+    pub publish_key: String
 }
 
 impl Opt {

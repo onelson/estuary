@@ -26,7 +26,7 @@ pub struct Settings {
     pub git_binary: PathBuf,
 
     /// The key that must be presented in order to publish a crate.
-    pub publish_key: Option<String>,
+    pub publish_key: String,
 }
 
 #[cfg(not(tarpaulin_include))]
