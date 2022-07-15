@@ -79,23 +79,21 @@ impl SecureEq for &str {
 fn is_authorized(request: &web::HttpRequest, settings: &Settings) -> Result<(),StatusCode> {
     let publish_key = request.headers().get(header::AUTHORIZATION);
 
-    if let Some(ref key) = settings.publish_key {
-        match publish_key {
-            Some(k) => {
-                let k = match k.to_str() {
-                    Ok(v) => v,
-                    Err(_) => {
-                        return Err(StatusCode::BAD_REQUEST);
-                    }
-                };
-
-                if !key.as_str().secure_eq(&k) {
-                    return Err(StatusCode::FORBIDDEN);
+    match publish_key {
+        Some(k) => {
+            let k = match k.to_str() {
+                Ok(v) => v,
+                Err(_) => {
+                    return Err(StatusCode::BAD_REQUEST);
                 }
-            },
-            None => {
-                return Err(StatusCode::UNAUTHORIZED);
+            };
+
+            if !settings.publish_key.as_str().secure_eq(&k) {
+                return Err(StatusCode::FORBIDDEN);
             }
+        },
+        None => {
+            return Err(StatusCode::UNAUTHORIZED);
         }
     }
 
@@ -314,6 +312,7 @@ mod tests {
         let req = test::TestRequest::put()
             .uri("/api/v1/crates/new")
             .set_payload(MY_CRATE_0_1_0)
+            .header("authorization", "00000000-0000-0000-0000-000000000000")
             .to_request();
 
         let resp: serde_json::Value = test::read_response_json(&mut app, req).await;
@@ -338,6 +337,7 @@ mod tests {
         let req = test::TestRequest::put()
             .uri("/api/v1/crates/new")
             .set_payload(MY_CRATE_0_1_0)
+            .header("authorization", "00000000-0000-0000-0000-000000000000")
             .to_request();
 
         let resp: serde_json::Value = test::read_response_json(&mut app, req).await;
@@ -348,6 +348,7 @@ mod tests {
         let req = test::TestRequest::put()
             .uri("/api/v1/crates/new")
             .set_payload(MY_CRATE_0_1_0)
+            .header("authorization", "00000000-0000-0000-0000-000000000000")
             .to_request();
 
         let resp: serde_json::Value = test::read_response_json(&mut app, req).await;
@@ -373,12 +374,14 @@ mod tests {
         let req = test::TestRequest::put()
             .uri("/api/v1/crates/new")
             .set_payload(MY_CRATE_0_1_0)
+            .header("authorization", "00000000-0000-0000-0000-000000000000")
             .to_request();
 
         let _: serde_json::Value = test::read_response_json(&mut app, req).await;
 
         let req = test::TestRequest::delete()
             .uri("/api/v1/crates/my-crate/0.1.0/yank")
+            .header("authorization", "00000000-0000-0000-0000-000000000000")
             .to_request();
 
         let resp: serde_json::Value = test::read_response_json(&mut app, req).await;
@@ -403,18 +406,21 @@ mod tests {
         let req = test::TestRequest::put()
             .uri("/api/v1/crates/new")
             .set_payload(MY_CRATE_0_1_0)
+            .header("authorization", "00000000-0000-0000-0000-000000000000")
             .to_request();
 
         let _: serde_json::Value = test::read_response_json(&mut app, req).await;
 
         let req = test::TestRequest::delete()
             .uri("/api/v1/crates/my-crate/0.1.0/yank")
+            .header("authorization", "00000000-0000-0000-0000-000000000000")
             .to_request();
 
         let _: serde_json::Value = test::read_response_json(&mut app, req).await;
 
         let req = test::TestRequest::put()
             .uri("/api/v1/crates/my-crate/0.1.0/unyank")
+            .header("authorization", "00000000-0000-0000-0000-000000000000")
             .to_request();
 
         let resp: serde_json::Value = test::read_response_json(&mut app, req).await;
@@ -439,6 +445,7 @@ mod tests {
         let req = test::TestRequest::put()
             .uri("/api/v1/crates/new")
             .set_payload(MY_CRATE_0_1_0)
+            .header("authorization", "00000000-0000-0000-0000-000000000000")
             .to_request();
 
         let _: serde_json::Value = test::read_response_json(&mut app, req).await;
